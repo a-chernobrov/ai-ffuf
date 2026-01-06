@@ -1,0 +1,25 @@
+# Переменные окружения
+.env
+.env.local
+.env.production
+.env.development
+
+# Базы данных
+*.db
+*.sqlite
+*.sqlite3
+*.mdb
+data.db
+database/
+
+# Логи и временные файлы
+*.log
+node_modules/
+__pycache__/
+*.pyc
+.DS_Store
+
+# Другие часто игнорируемые папки
+venv/
+.idea/
+.vscode/
