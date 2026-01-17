@@ -124,3 +124,14 @@ python3 crew_ffuf.py \
 ## Запуск
 
 python /opt/my-tools/ai-agents-pentest/crew_ffuf.py --targets domain.txt --workers 10 --wordlist /opt/wordlist-for-fuzz/content_fuzz/content_discovery_nullenc0de.txt --llm-trigger 100 --mid-error-rate 0.05 --mid-error-window 2000 --ban-backoff-seconds 500 --header 'X-Pentest: GHACK'
+
+
+python3 crew_ffuf.py \
+  --targets targets.txt \
+  --wordlist /path/to/100k.txt \
+  --workers 3 \
+  --output-dir results \
+  --blocked-dir blocked \
+  --late-error-min-progress 80000 \
+  --late-error-window 2000 \
+  --late-error-rate 0.02

@@ -47,7 +47,7 @@ def sanitize_name(target):
     return name
 
 class FFUFRunner:
-    def __init__(self, base_url, wordlist, out_dir, blocked_dir, max_restarts, stall_seconds, llm_model, use_llm, llm_trigger, headers=None, report_func=None, max_error_rate=0.5, error_block_min=200, ban_403_rate=0.6, ban_429_rate=0.2, threads=None, mode="path", host_suffix=None, early_error_rate=0.3, early_error_window=30, ban_backoff_seconds=60, mid_error_rate=None, mid_error_window=None):
+    def __init__(self, base_url, wordlist, out_dir, blocked_dir, max_restarts, stall_seconds, llm_model, use_llm, llm_trigger, headers=None, report_func=None, max_error_rate=0.5, error_block_min=200, ban_403_rate=0.6, ban_429_rate=0.2, threads=None, mode="path", host_suffix=None, early_error_rate=0.3, early_error_window=30, ban_backoff_seconds=60, mid_error_rate=None, mid_error_window=None, late_error_rate=None, late_error_window=None, late_error_min_progress=None):
         self.base_url = base_url.rstrip("/")
         self.wordlist = wordlist
         self.out_dir = out_dir
@@ -99,6 +99,18 @@ class FFUFRunner:
             self.mid_error_window = int(mid_error_window) if mid_error_window is not None else None
         except Exception:
             self.mid_error_window = None
+        try:
+            self.late_error_rate = float(late_error_rate) if late_error_rate is not None else None
+        except Exception:
+            self.late_error_rate = None
+        try:
+            self.late_error_window = int(late_error_window) if late_error_window is not None else None
+        except Exception:
+            self.late_error_window = None
+        try:
+            self.late_error_min_progress = int(late_error_min_progress) if late_error_min_progress is not None else None
+        except Exception:
+            self.late_error_min_progress = None
         try:
             if threads is not None:
                 it = int(threads)
@@ -552,6 +564,9 @@ class FFUFRunner:
             start_time = time.time()
             self.last_output_time = start_time
             total = 0
+            late_block_triggered = False
+            late_check_total = 0
+            late_check_err = 0
             try:
                 for line in self.proc.stdout:
                     if not line:
@@ -596,6 +611,24 @@ class FFUFRunner:
                             restarts += 1
                             did_restart = True
                             break
+                        if (self.late_error_rate is not None) and (self.late_error_window is not None) and (self.late_error_min_progress is not None):
+                            try:
+                                if total - late_check_total >= self.late_error_window:
+                                    curp = self._cur if self._cur else total
+                                    delta_total = total - late_check_total
+                                    delta_err = err - late_check_err
+                                    if curp >= self.late_error_min_progress and delta_err / max(delta_total, 1) >= self.late_error_rate:
+                                        self._log(name, f"late errors: +{delta_err}/+{delta_total} at progress {curp} -> block")
+                                        late_block_triggered = True
+                                        try:
+                                            self.proc.terminate()
+                                        except Exception:
+                                            pass
+                                        break
+                                    late_check_total = total
+                                    late_check_err = err
+                            except Exception:
+                                pass
                         if (self.mid_error_rate is not None) and (self.mid_error_window is not None):
                             curp = self._cur if self._cur else total
                             if curp >= self.mid_error_window and err / max(curp, 1) >= self.mid_error_rate:
@@ -721,6 +754,14 @@ class FFUFRunner:
                         self._log(name, f"heartbeat: progress {self._cur}/{self._tot} last_out={int(time.time()-self.last_output_time)}s errors={self.error_counts.get('ffuf_errors',0)} top_status={sorted(self.status_counts.items(), key=lambda x: -x[1])[:3]}")
                     except Exception:
                         pass
+                if late_block_triggered:
+                    try:
+                        with open(os.path.join(self.blocked_dir, f"{name}.json"), "w", encoding="utf-8") as f:
+                            json.dump({"blocked": True, "reason": "late_errors", "csv": out_csv_path, "errors": self.error_counts.get("ffuf_errors",0), "progress": [self._cur, self._tot]}, f)
+                    except Exception:
+                        pass
+                    self._log(name, "finished blocked reason=late_errors")
+                    return False, {"blocked": True, "reason": "late_errors", "csv": out_csv_path}
                 if error_block_triggered:
                     try:
                         with open(os.path.join(self.blocked_dir, f"{name}.json"), "w", encoding="utf-8") as f:
@@ -796,7 +837,34 @@ class FFUFRunner:
                 return False, {"blocked": True}
         return True, {"csv": out_csv_path, "filters": {k: sorted(list(v)) for k,v in self.filters.items()}, "status_counts": self.status_counts}
 
-def run_one(target, wordlist, out_dir, blocked_dir, max_restarts, stall_seconds, llm_model, use_llm, llm_trigger, headers=None, report_func=None, max_error_rate=0.5, error_block_min=200, ban_403_rate=0.6, ban_429_rate=0.2, threads=None, mode="path", host_suffix=None, early_error_rate=0.3, early_error_window=30, ban_backoff_seconds=60, mid_error_rate=None, mid_error_window=None):
+def run_one(target, wordlist, out_dir, blocked_dir, max_restarts, stall_seconds, llm_model, use_llm, llm_trigger, headers=None, report_func=None, max_error_rate=0.5, error_block_min=200, ban_403_rate=0.6, ban_429_rate=0.2, threads=None, mode="path", host_suffix=None, early_error_rate=0.3, early_error_window=30, ban_backoff_seconds=60, mid_error_rate=None, mid_error_window=None, late_error_rate=None, late_error_window=None, late_error_min_progress=None):
     name = sanitize_name(target)
-    runner = FFUFRunner(target, wordlist, out_dir, blocked_dir, max_restarts, stall_seconds, llm_model, use_llm, llm_trigger, headers=headers, report_func=report_func, max_error_rate=max_error_rate, error_block_min=error_block_min, ban_403_rate=ban_403_rate, ban_429_rate=ban_429_rate, threads=threads, mode=mode, host_suffix=host_suffix, early_error_rate=early_error_rate, early_error_window=early_error_window, ban_backoff_seconds=ban_backoff_seconds, mid_error_rate=mid_error_rate, mid_error_window=mid_error_window)
+    runner = FFUFRunner(
+        target,
+        wordlist,
+        out_dir,
+        blocked_dir,
+        max_restarts,
+        stall_seconds,
+        llm_model,
+        use_llm,
+        llm_trigger,
+        headers=headers,
+        report_func=report_func,
+        max_error_rate=max_error_rate,
+        error_block_min=error_block_min,
+        ban_403_rate=ban_403_rate,
+        ban_429_rate=ban_429_rate,
+        threads=threads,
+        mode=mode,
+        host_suffix=host_suffix,
+        early_error_rate=early_error_rate,
+        early_error_window=early_error_window,
+        ban_backoff_seconds=ban_backoff_seconds,
+        mid_error_rate=mid_error_rate,
+        mid_error_window=mid_error_window,
+        late_error_rate=late_error_rate,
+        late_error_window=late_error_window,
+        late_error_min_progress=late_error_min_progress,
+    )
     return name, runner.run(name)

@@ -72,6 +72,9 @@ def main():
     p.add_argument("--ban-backoff-seconds", type=int, default=60)
     p.add_argument("--mid-error-rate", type=float, default=None, help="Порог ошибки/прогресса для реактивного рестарта (напр. 0.25)")
     p.add_argument("--mid-error-window", type=int, default=None, help="Окно минимального прогресса для оценки (напр. 200)")
+    p.add_argument("--late-error-rate", type=float, default=None, help="Порог доли ошибок в позднем окне для дропа задачи (напр. 0.02)")
+    p.add_argument("--late-error-window", type=int, default=None, help="Размер окна (кол-во status-строк) для late-error-rate (напр. 2000)")
+    p.add_argument("--late-error-min-progress", type=int, default=None, help="Минимальный прогресс, после которого включается late-error (напр. 80000)")
     args = p.parse_args()
     try:
         os.makedirs(args.output_dir, exist_ok=True)
@@ -442,6 +445,9 @@ def main():
                 ban_backoff_seconds=args.ban_backoff_seconds,
                 mid_error_rate=args.mid_error_rate,
                 mid_error_window=args.mid_error_window,
+                late_error_rate=args.late_error_rate,
+                late_error_window=args.late_error_window,
+                late_error_min_progress=args.late_error_min_progress,
             )
             return json.dumps({"name": name, "ok": ok, "info": info})
         tools = [FFUFRunTool]
@@ -498,6 +504,9 @@ def main():
                             args.ban_backoff_seconds,
                             args.mid_error_rate,
                             args.mid_error_window,
+                            args.late_error_rate,
+                            args.late_error_window,
+                            args.late_error_min_progress,
                         )
                         results.append({"name": name, "ok": ok, "info": info})
                     except Exception:
