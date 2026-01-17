@@ -47,7 +47,7 @@ def sanitize_name(target):
     return name
 
 class FFUFRunner:
-    def __init__(self, base_url, wordlist, out_dir, blocked_dir, max_restarts, stall_seconds, llm_model, use_llm, llm_trigger, headers=None, report_func=None, max_error_rate=0.5, error_block_min=200, ban_403_rate=0.6, ban_429_rate=0.2, threads=None, mode="path", host_suffix=None, early_error_rate=0.3, early_error_window=30, ban_backoff_seconds=60, mid_error_rate=None, mid_error_window=None, late_error_rate=None, late_error_window=None, late_error_min_progress=None):
+    def __init__(self, base_url, wordlist, out_dir, blocked_dir, max_restarts, stall_seconds, llm_model, use_llm, llm_trigger, headers=None, report_func=None, max_error_rate=0.5, error_block_min=200, ban_403_rate=0.6, ban_429_rate=0.2, threads=None, mode="path", host_suffix=None, early_error_rate=0.3, early_error_window=30, ban_backoff_seconds=60, mid_error_rate=None, mid_error_window=None, late_error_rate=None, late_error_window=None, late_error_min_progress=None, rate=None, delay=None):
         self.base_url = base_url.rstrip("/")
         self.wordlist = wordlist
         self.out_dir = out_dir
@@ -116,6 +116,20 @@ class FFUFRunner:
                 it = int(threads)
                 if it > 0:
                     self.pre_flags += ["-t", str(it)]
+        except Exception:
+            pass
+        try:
+            if rate is not None:
+                ir = int(rate)
+                if ir > 0:
+                    self.pre_flags += ["-rate", str(ir)]
+        except Exception:
+            pass
+        try:
+            if delay is not None:
+                dv = float(delay)
+                if dv > 0:
+                    self.pre_flags += ["-p", str(dv)]
         except Exception:
             pass
 
@@ -837,7 +851,7 @@ class FFUFRunner:
                 return False, {"blocked": True}
         return True, {"csv": out_csv_path, "filters": {k: sorted(list(v)) for k,v in self.filters.items()}, "status_counts": self.status_counts}
 
-def run_one(target, wordlist, out_dir, blocked_dir, max_restarts, stall_seconds, llm_model, use_llm, llm_trigger, headers=None, report_func=None, max_error_rate=0.5, error_block_min=200, ban_403_rate=0.6, ban_429_rate=0.2, threads=None, mode="path", host_suffix=None, early_error_rate=0.3, early_error_window=30, ban_backoff_seconds=60, mid_error_rate=None, mid_error_window=None, late_error_rate=None, late_error_window=None, late_error_min_progress=None):
+def run_one(target, wordlist, out_dir, blocked_dir, max_restarts, stall_seconds, llm_model, use_llm, llm_trigger, headers=None, report_func=None, max_error_rate=0.5, error_block_min=200, ban_403_rate=0.6, ban_429_rate=0.2, threads=None, mode="path", host_suffix=None, early_error_rate=0.3, early_error_window=30, ban_backoff_seconds=60, mid_error_rate=None, mid_error_window=None, late_error_rate=None, late_error_window=None, late_error_min_progress=None, rate=None, delay=None):
     name = sanitize_name(target)
     runner = FFUFRunner(
         target,
@@ -866,5 +880,7 @@ def run_one(target, wordlist, out_dir, blocked_dir, max_restarts, stall_seconds,
         late_error_rate=late_error_rate,
         late_error_window=late_error_window,
         late_error_min_progress=late_error_min_progress,
+        rate=rate,
+        delay=delay,
     )
     return name, runner.run(name)

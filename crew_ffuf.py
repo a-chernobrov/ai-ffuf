@@ -65,6 +65,8 @@ def main():
     p.add_argument("--ban-403-rate", type=float, default=0.6)
     p.add_argument("--ban-429-rate", type=float, default=0.2)
     p.add_argument("-t", "--threads", type=int, default=None)
+    p.add_argument("--rate", type=int, default=None, help="Прокинуть -rate в ffuf (например 50)")
+    p.add_argument("--p", type=float, default=None, help="Прокинуть -p в ffuf (delay, например 0.2)")
     p.add_argument("--mode", choices=["path", "vhost"], default="path")
     p.add_argument("--host-suffix", default=".domain")
     p.add_argument("--early-error-rate", type=float, default=0.3)
@@ -448,6 +450,8 @@ def main():
                 late_error_rate=args.late_error_rate,
                 late_error_window=args.late_error_window,
                 late_error_min_progress=args.late_error_min_progress,
+                rate=args.rate,
+                delay=args.p,
             )
             return json.dumps({"name": name, "ok": ok, "info": info})
         tools = [FFUFRunTool]
@@ -507,6 +511,8 @@ def main():
                             args.late_error_rate,
                             args.late_error_window,
                             args.late_error_min_progress,
+                            args.rate,
+                            args.p,
                         )
                         results.append({"name": name, "ok": ok, "info": info})
                     except Exception:

@@ -1,0 +1,5 @@
+FUZZ,url,redirectlocation,position,status_code,content_length,content_words,content_lines,content_type,duration,resultfile,Ffufhash
+healthz,https://158.160.39.38:443/healthz,,53538,200,0,1,1,text/html,87.129879ms,,59b5dd122
+healthz/ping,https://158.160.39.38:443/healthz/ping,,53539,200,0,1,1,text/html,94.694369ms,,59b5dd123
+healthz/ready,https://158.160.39.38:443/healthz/ready,,53540,200,0,1,1,text/html,98.14142ms,,59b5dd124
+static/../../../a/../../../../etc/passwd,https://158.160.39.38:443/static/../../../a/../../../../etc/passwd,,97471,400,150,5,8,text/html,99.403653ms,,59b5d17cbf

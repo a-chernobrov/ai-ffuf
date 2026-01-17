@@ -135,3 +135,22 @@ python3 crew_ffuf.py \
   --late-error-min-progress 80000 \
   --late-error-window 2000 \
   --late-error-rate 0.02
+
+
+
+
+
+python3 crew_ffuf.py \
+ --targets ~/work/wildbearyss/hosts.txt \
+ --wordlist ~/wordlist/
+ --wordlist ~/wordlist/bbFuzzing.txt \
+ --workers 3 \
+ --late-error-min-progress 80000 \
+ --late-error-window 2000 \
+ --late-error-rate 0.02 \
+ -t 6
+
+
+
+
+
