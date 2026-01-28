@@ -151,6 +151,92 @@ python3 crew_ffuf.py \
  -t 6
 
 
+venv/bin/python3 crew_ffuf.py --targets ~/n8n/projects/ffuz/schema_ip_and_domain.txt --wordlist ~/wordlist/common.txt --workers 3 --mid-error-rate 0.2 --mid-error-window 300 --late-error-rate 0.02 --late-error-window 2000 --ban-backoff-seconds 300 --max-restarts 5
 
 
 
+
+
+
+
+
+# Руководство по запуску и параметрам
+
+Это руководство описывает запуск фазинга через `crew_ffuf.py`, работу агента `ffuf_agent.py`, назначение всех параметров и рекомендуемые значения. Документ актуален для режимов `path` и `vhost` и учитывает динамические рестарты, анти‑rate, фильтры, телеметрию, UI, **множественные wordlists с fallback** и **LLM chain (failover)**.
+
+## Установка и окружение
+
+- `.env` — поддержка LLM chain (несколько провайдеров):
+  ```
+  # OpenRouter (primary)
+  OPENAI_BASE_URL=https://openrouter.ai/api/v1
+  OPENAI_API_KEY=...
+  OPENAI_MODEL_NAME=x-ai/grok-4.1-fast
+
+  # VoidAI (fallback)
+  VOIDAI_BASE_URL=https://api.voidai.app/v1
+  VOIDAI_API_KEY=...
+  VOIDAI_MODEL_NAME=magistral-medium-latest
+  ```
+  - При ошибке первого (timeout/401/429) — авто-переключение на следующий. Логи: `LLM success/fail <url>...`.
+  - Чтение при старте [crew_ffuf.py:35].
+
+## Запуск
+
+Базовый (path):
+
+```bash
+venv/bin/python crew_ffuf.py \
+  --targets targets.txt \
+  --wordlists /opt/wordlist-for-fuzz/content_fuzz/common.txt /opt/wordlist-for-fuzz/other.txt \
+  --workers 3 \
+  --output-dir results
+```
+
+С LLM chain + error handling:
+
+```bash
+venv/bin/python crew_ffuf.py \
+  --targets targets.txt \
+  --wordlists wl1.txt wl2.txt \
+  --workers 3 \
+  --mode vhost \
+  --host-suffix .domain \
+  --llm-model gpt-4o-mini \
+  --llm-trigger 50 \
+  --early-error-rate 0.3 \
+  --late-error-rate 0.02 --late-error-window 2000 --late-error-min-progress 80000
+```
+
+**Wordlists fallback**: Если CSV пуст после wl1 (нет строк/размер=0), рестарт с wl2. Логи: `Trying wordlist 1/2: common.txt`, `Success with wordlist wl2.txt`.
+
+## Параметры CLI
+
+- `--targets` (req) — файл целей.
+- **`--wordlists` (req, nargs='+')** — список словарей. Fallback: пустой CSV → следующий wl [ffuf_agent.py:854].
+- `--workers`, `--output-dir`, `--blocked-dir` и др. — как раньше.
+- `--rate`, `--p` — прямой прокид в ffuf.
+- `--llm-model` — модель (chain авто).
+- Error params: `--early-*/--mid-*/--late-error-*`.
+
+## Поведение новых фич
+
+- **Wordlists**: Цикл в `run_one` [ffuf_agent.py:854–911]. `_csv_has_results` проверяет CSV [ffuf_agent.py:193].
+- **LLM chain**: `_llm_chat` [ffuf_agent.py:284] и crewai init [crew_ffuf.py:85] — try configs из .env, log success/fail.
+- Рестарты/фильтры/анти-rate — без изменений.
+
+## Результаты/Логи/UI
+
+- Логи LLM: `LLM success: https://openrouter...`, fallback на VoidAI.
+- UI: показывает прогресс по wordlist.
+- CSV в `results`, blocked JSON при no_results_all_wordlists.
+
+## Рекомендации
+
+- Wordlists: большой primary + small fallback.
+- LLM chain: primary OpenRouter, fallback VoidAI/Groq.
+- Тест: `--wordlists small1.txt small2.txt --llm-trigger 5`.
+
+## Примечания
+
+[... остальное без изменений]

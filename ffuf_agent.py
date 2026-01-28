@@ -283,24 +283,45 @@ class FFUFRunner:
 
     def _llm_chat(self, content):
         _load_local_env()
-        api_key = os.environ.get("OPENAI_API_KEY") or os.environ.get("OPENROUTER_API_KEY")
-        base_url = os.environ.get("OPENAI_BASE_URL", "https://openrouter.ai/api/v1")
-        if not (self.use_llm and api_key):
+        llm_configs = [
+            {
+                "base_url": os.environ.get("OPENAI_BASE_URL", "https://openrouter.ai/api/v1"),
+                "api_key": os.environ.get("OPENAI_API_KEY") or os.environ.get("OPENROUTER_API_KEY"),
+                "model": self.llm_model
+            },
+            {
+                "base_url": os.environ.get("VOIDAI_BASE_URL"),
+                "api_key": os.environ.get("VOIDAI_API_KEY"),
+                "model": os.environ.get("VOIDAI_MODEL_NAME", self.llm_model)
+            }
+        ]
+        if not self.use_llm:
             return None
-        try:
-            if OpenAI is not None:
-                client = OpenAI(api_key=api_key, base_url=base_url)
-                r = client.chat.completions.create(model=self.llm_model, messages=[{"role":"user","content":content}])
-                return r.choices[0].message.content
-            if requests is not None:
-                h = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
-                d = {"model": self.llm_model, "messages": [{"role":"user","content": content}]}
-                u = base_url.rstrip("/") + "/chat/completions"
-                r = requests.post(u, headers=h, json=d, timeout=30)
-                j = r.json()
-                return j.get("choices", [{}])[0].get("message", {}).get("content")
-        except Exception:
-            return None
+        for config in llm_configs:
+            if not config["api_key"]:
+                continue
+            try:
+                if OpenAI is not None:
+                    client = OpenAI(api_key=config["api_key"], base_url=config["base_url"])
+                    r = client.chat.completions.create(
+                        model=config["model"],
+                        messages=[{"role": "user", "content": content}]
+                    )
+                    self._log(self._job_name or "llm", f"LLM success: {config['base_url'][:30]}...")
+                    return r.choices[0].message.content
+                if requests is not None:
+                    h = {"Authorization": f"Bearer {config['api_key']}", "Content-Type": "application/json"}
+                    d = {"model": config["model"], "messages": [{"role": "user", "content": content}]}
+                    u = config["base_url"].rstrip("/") + "/chat/completions"
+                    r = requests.post(u, headers=h, json=d, timeout=30)
+                    r.raise_for_status()
+                    j = r.json()
+                    self._log(self._job_name or "llm", f"LLM success (requests): {config['base_url'][:30]}...")
+                    return j.get("choices", [{}])[0].get("message", {}).get("content")
+            except Exception as e:
+                self._log(self._job_name or "llm", f"LLM fail {config['base_url'][:30]}...: {str(e)[:100]}")
+                continue
+        return None
 
     def _llm_preflight_plan(self):
         payload = {"target": self.base_url, "filters": {k: sorted(list(v)) for k,v in self.filters.items()}, "config": {"max_error_rate": self.max_error_rate, "error_block_min": self.error_block_min, "ban_403_rate": self.ban_403_rate, "ban_429_rate": self.ban_429_rate}}
@@ -851,36 +872,47 @@ class FFUFRunner:
                 return False, {"blocked": True}
         return True, {"csv": out_csv_path, "filters": {k: sorted(list(v)) for k,v in self.filters.items()}, "status_counts": self.status_counts}
 
-def run_one(target, wordlist, out_dir, blocked_dir, max_restarts, stall_seconds, llm_model, use_llm, llm_trigger, headers=None, report_func=None, max_error_rate=0.5, error_block_min=200, ban_403_rate=0.6, ban_429_rate=0.2, threads=None, mode="path", host_suffix=None, early_error_rate=0.3, early_error_window=30, ban_backoff_seconds=60, mid_error_rate=None, mid_error_window=None, late_error_rate=None, late_error_window=None, late_error_min_progress=None, rate=None, delay=None):
+def run_one(target, wordlists: list[str], out_dir, blocked_dir, max_restarts, stall_seconds, llm_model, use_llm, llm_trigger, headers=None, report_func=None, max_error_rate=0.5, error_block_min=200, ban_403_rate=0.6, ban_429_rate=0.2, threads=None, mode="path", host_suffix=None, early_error_rate=0.3, early_error_window=30, ban_backoff_seconds=60, mid_error_rate=None, mid_error_window=None, late_error_rate=None, late_error_window=None, late_error_min_progress=None, rate=None, delay=None):
     name = sanitize_name(target)
-    runner = FFUFRunner(
-        target,
-        wordlist,
-        out_dir,
-        blocked_dir,
-        max_restarts,
-        stall_seconds,
-        llm_model,
-        use_llm,
-        llm_trigger,
-        headers=headers,
-        report_func=report_func,
-        max_error_rate=max_error_rate,
-        error_block_min=error_block_min,
-        ban_403_rate=ban_403_rate,
-        ban_429_rate=ban_429_rate,
-        threads=threads,
-        mode=mode,
-        host_suffix=host_suffix,
-        early_error_rate=early_error_rate,
-        early_error_window=early_error_window,
-        ban_backoff_seconds=ban_backoff_seconds,
-        mid_error_rate=mid_error_rate,
-        mid_error_window=mid_error_window,
-        late_error_rate=late_error_rate,
-        late_error_window=late_error_window,
-        late_error_min_progress=late_error_min_progress,
-        rate=rate,
-        delay=delay,
-    )
-    return name, runner.run(name)
+    for wl_idx, wl in enumerate(wordlists):
+        runner = FFUFRunner(
+            target,
+            wl,
+            out_dir,
+            blocked_dir,
+            max_restarts,
+            stall_seconds,
+            llm_model,
+            use_llm,
+            llm_trigger,
+            headers=headers,
+            report_func=report_func,
+            max_error_rate=max_error_rate,
+            error_block_min=error_block_min,
+            ban_403_rate=ban_403_rate,
+            ban_429_rate=ban_429_rate,
+            threads=threads,
+            mode=mode,
+            host_suffix=host_suffix,
+            early_error_rate=early_error_rate,
+            early_error_window=early_error_window,
+            ban_backoff_seconds=ban_backoff_seconds,
+            mid_error_rate=mid_error_rate,
+            mid_error_window=mid_error_window,
+            late_error_rate=late_error_rate,
+            late_error_window=late_error_window,
+            late_error_min_progress=late_error_min_progress,
+            rate=rate,
+            delay=delay,
+        )
+        runner._log(name, f"Trying wordlist {wl_idx+1}/{len(wordlists)}: {os.path.basename(wl)}")
+        ok, info = runner.run(name)
+        csv_path = info.get('csv') if info else ''
+        has_results = csv_path and os.path.exists(csv_path) and runner._csv_has_results(csv_path)
+        runner._log(name, f"Wordlist {wl_idx+1}: ok={ok}, has_results={has_results}, csv_size={os.path.getsize(csv_path) if csv_path and os.path.exists(csv_path) else 0 if csv_path else 'no_path'}")
+        if has_results:
+            runner._log(name, f"Success with wordlist {os.path.basename(wl)}")
+            return name, (True, info)
+    if wordlists:
+        runner._log(name, "No results from any wordlist - blocked")
+    return name, (False, {'blocked': True, 'reason': 'no_results_all_wordlists'})

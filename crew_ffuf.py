@@ -51,7 +51,8 @@ def main():
         pass
     p = argparse.ArgumentParser()
     p.add_argument("--targets", required=True)
-    p.add_argument("--wordlist", required=True)
+    p.add_argument("--wordlists", nargs='+', required=True, help="Список путей к словарям (fallback: если CSV пуст после прогона, пробуем следующий)")
+    p.add_argument("--wordlist", nargs='+', dest='wordlists', help="Алиас для --wordlists (fallback: если CSV пуст, пробуем следующий)")
     p.add_argument("--workers", type=int, default=2)
     p.add_argument("--output-dir", default="results")
     p.add_argument("--blocked-dir", default="blocked")
@@ -84,14 +85,28 @@ def main():
         pass
     agent_log_path = os.path.join(args.output_dir, "agent_events.jsonl")
 
-    base_url = os.environ.get("OPENAI_BASE_URL", "https://openrouter.ai/api/v1")
-    api_key = os.environ.get("OPENAI_API_KEY", os.environ.get("OPENROUTER_API_KEY", ""))
+    llm_configs = [
+        {
+            "base_url": os.environ.get("OPENAI_BASE_URL", "https://openrouter.ai/api/v1"),
+            "api_key": os.environ.get("OPENAI_API_KEY") or os.environ.get("OPENROUTER_API_KEY"),
+            "model": args.llm_model
+        },
+        {
+            "base_url": os.environ.get("VOIDAI_BASE_URL"),
+            "api_key": os.environ.get("VOIDAI_API_KEY"),
+            "model": os.environ.get("VOIDAI_MODEL_NAME", args.llm_model)
+        }
+    ]
     llm = None
-    try:
-        if api_key:
-            llm = LLM(model=f"openrouter/{args.llm_model}", base_url=base_url, api_key=api_key)
-    except Exception:
-        llm = None
+    for config in llm_configs:
+        if config["api_key"]:
+            try:
+                llm = LLM(model=config["model"], base_url=config["base_url"], api_key=config["api_key"])
+                print(f"[INFO] Using LLM config: {config['base_url'][:50]}...")
+                break
+            except Exception as e:
+                print(f"[WARN] LLM config failed {config['base_url'][:30]}...: {str(e)[:100]}")
+                continue
 
     runner = Agent(
         role="Runner",
@@ -486,7 +501,7 @@ def main():
                     try:
                         name, (ok, info) = run_one(
                             t,
-                            args.wordlist,
+                            args.wordlists,
                             args.output_dir,
                             args.blocked_dir,
                             args.max_restarts,
