@@ -472,13 +472,13 @@ class FFUFRunner:
         if self.mode == "vhost":
             cmd = [
                 "ffuf","-u", f"{self.base_url}","-w", self.wordlist,
-                "-mc","all","-v","-noninteractive","-of","csv","-o", out_csv_path,
+                "-mc","all","-v","-noninteractive","-of","json","-o", out_csv_path,
                 "-debug-log", debug_log_path,
             ]
         else:
             cmd = [
                 "ffuf","-u", f"{self.base_url}/FUZZ","-w", self.wordlist,
-                "-mc","all","-v","-noninteractive","-of","csv","-o", out_csv_path,
+                "-mc","all","-v","-noninteractive","-of","json","-o", out_csv_path,
                 "-debug-log", debug_log_path,
             ]
         if self.pre_flags:
@@ -553,7 +553,7 @@ class FFUFRunner:
         res_dir = self.out_dir if self.mode != "vhost" else os.path.join(self.out_dir, "vhost")
         os.makedirs(res_dir, exist_ok=True)
         os.makedirs(self.blocked_dir, exist_ok=True)
-        out_csv_path = os.path.join(res_dir, f"{name}.csv")
+        out_csv_path = os.path.join(res_dir, f"{name}.json")
         restarts = 0
         stall_restarts = 0
         error_block_triggered = False

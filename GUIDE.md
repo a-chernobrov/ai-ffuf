@@ -126,32 +126,7 @@ python3 crew_ffuf.py \
 python /opt/my-tools/ai-agents-pentest/crew_ffuf.py --targets domain.txt --workers 10 --wordlist /opt/wordlist-for-fuzz/content_fuzz/content_discovery_nullenc0de.txt --llm-trigger 100 --mid-error-rate 0.05 --mid-error-window 2000 --ban-backoff-seconds 500 --header 'X-Pentest: GHACK'
 
 
-python3 crew_ffuf.py \
-  --targets targets.txt \
-  --wordlist /path/to/100k.txt \
-  --workers 3 \
-  --output-dir results \
-  --blocked-dir blocked \
-  --late-error-min-progress 80000 \
-  --late-error-window 2000 \
-  --late-error-rate 0.02
-
-
-
-
-
-python3 crew_ffuf.py \
- --targets ~/work/wildbearyss/hosts.txt \
- --wordlist ~/wordlist/
- --wordlist ~/wordlist/bbFuzzing.txt \
- --workers 3 \
- --late-error-min-progress 80000 \
- --late-error-window 2000 \
- --late-error-rate 0.02 \
- -t 6
-
-
-venv/bin/python3 crew_ffuf.py --targets ~/n8n/projects/ffuz/schema_ip_and_domain.txt --wordlist ~/wordlist/common.txt --workers 3 --mid-error-rate 0.2 --mid-error-window 300 --late-error-rate 0.02 --late-error-window 2000 --ban-backoff-seconds 300 --max-restarts 5
+/opt/my-tools/ai-agents-pentest/venv/bin/python3 /opt/my-tools/ai-agents-pentest/crew_ffuf.py --targets targets.txt --wordlists /opt/wordlist-for-fuzz/content_fuzz/common.txt /opt/wordlist-for-fuzz/content_fuzz/fuzz-Bo0oM.txt --workers 3 --mid-error-rate 0.2 --mid-error-window 300 --late-error-rate 0.02 --late-error-window 2000 --ban-backoff-seconds 300 --max-restarts 5 --llm-model x-ai/grok-4.1-fast
 
 
 
