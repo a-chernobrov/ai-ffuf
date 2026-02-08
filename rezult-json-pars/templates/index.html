@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>FFUF JSON Viewer</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <div class="container">
+      <header class="header">
+        <div class="title">FFUF JSON Viewer</div>
+        <div class="subtitle">Фильтрация на клиенте по выбранному файлу</div>
+      </header>
+      <section class="panel">
+        <div class="row">
+          <label class="field">
+            <span>Файл</span>
+            <select id="fileSelect"></select>
+          </label>
+          <label class="field checkbox-field">
+            <span>Только непросмотренные</span>
+            <input id="onlyUnviewed" type="checkbox" />
+          </label>
+          <button id="prevUnviewed" class="button ghost">Предыдущий</button>
+          <button id="nextUnviewed" class="button ghost">Следующий</button>
+          <button id="clearViewed" class="button ghost">Сбросить просмотр</button>
+          <button id="reloadButton" class="button">Обновить</button>
+        </div>
+        <div class="row">
+          <label class="field">
+            <span>Поиск в URL</span>
+            <input id="urlSearch" type="text" placeholder="fragment" />
+          </label>
+          <label class="field">
+            <span>Статусы</span>
+            <input id="statusInclude" type="text" placeholder="200,2xx,200-399" />
+          </label>
+          <label class="field">
+            <span>Исключить статусы</span>
+            <input id="statusExclude" type="text" placeholder="404,5xx" />
+          </label>
+        </div>
+        <div class="row">
+          <label class="field">
+            <span>Длина от</span>
+            <input id="minLength" type="number" />
+          </label>
+          <label class="field">
+            <span>Длина до</span>
+            <input id="maxLength" type="number" />
+          </label>
+          <label class="field">
+            <span>Исключить длины</span>
+            <input id="excludeLength" type="text" placeholder="12,48,120" />
+          </label>
+          <label class="field">
+            <span>Строк от</span>
+            <input id="minLines" type="number" />
+          </label>
+          <label class="field">
+            <span>Строк до</span>
+            <input id="maxLines" type="number" />
+          </label>
+          <label class="field">
+            <span>Исключить строки</span>
+            <input id="excludeLines" type="text" placeholder="1,2,12" />
+          </label>
+          <label class="field">
+            <span>Слов от</span>
+            <input id="minWords" type="number" />
+          </label>
+          <label class="field">
+            <span>Слов до</span>
+            <input id="maxWords" type="number" />
+          </label>
+          <label class="field">
+            <span>Исключить слова</span>
+            <input id="excludeWords" type="text" placeholder="12,24,36" />
+          </label>
+        </div>
+        <div class="row meta">
+          <div id="metaInfo" class="meta-text"></div>
+          <div id="fileCounts" class="meta-text"></div>
+          <div id="counts" class="meta-text"></div>
+        </div>
+      </section>
+      <section class="panel table-panel">
+        <div class="table-header">
+          <div class="col status">Status</div>
+          <div class="col length">Length</div>
+          <div class="col words">Words</div>
+          <div class="col lines">Lines</div>
+          <div class="col url">URL</div>
+        </div>
+        <div id="resultsBody" class="table-body"></div>
+      </section>
+    </div>
+    <script src="/static/app.js"></script>
+  </body>
+</html>
