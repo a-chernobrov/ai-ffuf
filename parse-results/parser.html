@@ -1,0 +1,970 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FFUF Dashboard</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&family=Syne:wght@400;700;800&display=swap');
+
+  :root {
+    --bg: #0a0c0f;
+    --surface: #111418;
+    --surface2: #181d23;
+    --border: #1e2530;
+    --accent: #00ff88;
+    --accent2: #0088ff;
+    --warn: #ffaa00;
+    --danger: #ff4444;
+    --muted: #3a4455;
+    --text: #c8d4e0;
+    --text-dim: #5a6a7a;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* HEADER */
+  header {
+    padding: 18px 28px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 24px;
+    background: var(--surface);
+  }
+
+  header h1 {
+    font-family: 'Syne', sans-serif;
+    font-size: 18px;
+    font-weight: 800;
+    color: var(--accent);
+    letter-spacing: 2px;
+    text-transform: uppercase;
+  }
+
+  .header-meta {
+    color: var(--text-dim);
+    font-size: 11px;
+  }
+
+  .header-meta span { color: var(--text); }
+
+  .header-right {
+    margin-left: auto;
+    display: flex;
+    gap: 10px;
+    align-items: center;
+  }
+
+  /* UPLOAD ZONE */
+  #upload-zone {
+    border: 1.5px dashed var(--border);
+    border-radius: 6px;
+    padding: 8px 16px;
+    cursor: pointer;
+    transition: all 0.2s;
+    color: var(--text-dim);
+    font-size: 11px;
+    background: var(--surface2);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  #upload-zone:hover { border-color: var(--accent); color: var(--accent); }
+  #upload-zone.drag { border-color: var(--accent); background: rgba(0,255,136,0.05); }
+  #file-input { display: none; }
+
+  /* STATS ROW */
+  .stats-row {
+    display: flex;
+    gap: 1px;
+    background: var(--border);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .stat-box {
+    flex: 1;
+    padding: 12px 20px;
+    background: var(--surface);
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .stat-label { font-size: 10px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 1px; }
+  .stat-value { font-size: 22px; font-weight: 700; font-family: 'Syne', sans-serif; }
+  .stat-value.green { color: var(--accent); }
+  .stat-value.blue { color: var(--accent2); }
+  .stat-value.orange { color: var(--warn); }
+  .stat-value.red { color: var(--danger); }
+
+  /* MAIN LAYOUT */
+  .main {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+    height: calc(100vh - 120px);
+  }
+
+  /* SESSIONS SIDEBAR */
+  .sessions-panel {
+    width: 180px;
+    border-right: 1px solid var(--border);
+    background: var(--surface);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .panel-title {
+    padding: 10px 14px;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: var(--text-dim);
+    border-bottom: 1px solid var(--border);
+    background: var(--surface2);
+  }
+
+  .session-list { overflow-y: auto; flex: 1; }
+
+  .session-item {
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  .session-item:hover { background: var(--surface2); }
+  .session-item.active { background: rgba(0,255,136,0.07); border-left: 2px solid var(--accent); }
+  .session-name { font-size: 11px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .session-meta { font-size: 10px; color: var(--text-dim); margin-top: 2px; }
+
+  /* TREE PANEL */
+  .tree-panel {
+    width: 280px;
+    border-right: 1px solid var(--border);
+    background: var(--surface);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .tree-container { overflow-y: auto; flex: 1; padding: 8px 0; }
+
+  .tree-node {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 14px;
+    cursor: pointer;
+    transition: background 0.1s;
+    user-select: none;
+  }
+  .tree-node:hover { background: var(--surface2); }
+  .tree-node.selected { background: rgba(0,136,255,0.1); }
+
+  .tree-indent { display: inline-block; width: 14px; flex-shrink: 0; }
+  .tree-arrow { color: var(--text-dim); font-size: 10px; width: 12px; flex-shrink: 0; transition: transform 0.15s; }
+  .tree-arrow.open { transform: rotate(90deg); }
+  .tree-icon { font-size: 11px; }
+  .tree-name { flex: 1; font-size: 12px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tree-badge {
+    font-size: 9px;
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-weight: 700;
+  }
+  .badge-301 { background: rgba(255,170,0,0.15); color: var(--warn); }
+  .badge-200 { background: rgba(0,255,136,0.12); color: var(--accent); }
+  .badge-302 { background: rgba(255,170,0,0.15); color: var(--warn); }
+  .badge-500 { background: rgba(255,68,68,0.15); color: var(--danger); }
+  .badge-other { background: var(--surface2); color: var(--text-dim); }
+
+  .tree-new-badge {
+    font-size: 9px;
+    padding: 1px 5px;
+    border-radius: 3px;
+    background: rgba(0,136,255,0.2);
+    color: var(--accent2);
+    font-weight: 700;
+  }
+
+  /* RESULTS TABLE */
+  .results-panel {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .results-toolbar {
+    padding: 8px 16px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    background: var(--surface2);
+    flex-wrap: wrap;
+  }
+
+  .filter-btn {
+    padding: 3px 10px;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--text-dim);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .filter-btn:hover { border-color: var(--text-dim); color: var(--text); }
+  .filter-btn.active { border-color: var(--accent); color: var(--accent); background: rgba(0,255,136,0.07); }
+
+  .export-btn {
+    margin-left: auto;
+    padding: 4px 14px;
+    border-radius: 4px;
+    border: 1px solid var(--accent);
+    background: rgba(0,255,136,0.08);
+    color: var(--accent);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .export-btn:hover { background: rgba(0,255,136,0.18); }
+
+  .path-breadcrumb {
+    font-size: 11px;
+    color: var(--text-dim);
+    padding: 0 6px;
+  }
+  .path-breadcrumb span { color: var(--accent2); }
+
+  .table-wrap { overflow-y: auto; flex: 1; }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+
+  thead th {
+    position: sticky;
+    top: 0;
+    background: var(--surface2);
+    padding: 8px 12px;
+    text-align: left;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--text-dim);
+    border-bottom: 1px solid var(--border);
+    z-index: 1;
+  }
+
+  tbody tr {
+    border-bottom: 1px solid rgba(30,37,48,0.6);
+    transition: background 0.1s;
+  }
+  tbody tr:hover { background: var(--surface2); }
+  tbody tr.is-new { background: rgba(0,136,255,0.05); }
+
+  td {
+    padding: 7px 12px;
+    font-size: 12px;
+    vertical-align: middle;
+  }
+
+  .td-status {
+    font-weight: 700;
+    font-size: 12px;
+  }
+  .s-200 { color: var(--accent); }
+  .s-301, .s-302 { color: var(--warn); }
+  .s-500 { color: var(--danger); }
+  .s-other { color: var(--text-dim); }
+
+  .td-url { color: var(--text); font-size: 12px; }
+  .td-url .new-tag {
+    margin-left: 6px;
+    font-size: 9px;
+    padding: 1px 5px;
+    border-radius: 3px;
+    background: rgba(0,136,255,0.2);
+    color: var(--accent2);
+    vertical-align: middle;
+  }
+  .td-redirect { color: var(--text-dim); font-size: 11px; }
+  .td-size { color: var(--text-dim); }
+  .td-words { color: var(--text-dim); }
+
+  /* EMPTY STATE */
+  .empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    flex: 1;
+    gap: 12px;
+    color: var(--text-dim);
+    padding: 40px;
+    text-align: center;
+  }
+  .empty-icon { font-size: 40px; opacity: 0.3; }
+  .empty-title { font-family: 'Syne', sans-serif; font-size: 16px; color: var(--text); }
+  .empty-sub { font-size: 12px; line-height: 1.6; max-width: 320px; }
+
+  .drop-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,255,136,0.05);
+    border: 2px solid var(--accent);
+    z-index: 100;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    font-family: 'Syne', sans-serif;
+    font-size: 24px;
+    color: var(--accent);
+  }
+  .drop-overlay.show { display: flex; }
+
+  /* scrollbar */
+  ::-webkit-scrollbar { width: 4px; height: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--muted); border-radius: 2px; }
+
+  .no-data { color: var(--text-dim); padding: 20px; text-align: center; font-size: 12px; }
+</style>
+</head>
+<body>
+
+<div class="drop-overlay" id="drop-overlay">Drop ffuf JSON here</div>
+
+<header>
+  <h1>⬡ FFUF</h1>
+  <div class="header-meta">Content Discovery Dashboard &nbsp;|&nbsp; Sessions: <span id="session-count">0</span></div>
+  <div id="domain-display" style="margin-left:20px;color:var(--accent2);font-size:12px;font-weight:500;cursor:pointer;user-select:all;padding:2px 8px;border-radius:4px;background:rgba(0,136,255,0.1);border:1px solid rgba(0,136,255,0.3);display:none;" title="Click to copy"></div>
+  <div class="header-right">
+    <div id="upload-zone" onclick="document.getElementById('file-input').click()">
+      <span>＋</span> Load JSON
+    </div>
+    <input type="file" id="file-input" accept=".json" multiple>
+  </div>
+</header>
+
+<div class="stats-row">
+  <div class="stat-box">
+    <div class="stat-label">Total Found</div>
+    <div class="stat-value green" id="stat-total">0</div>
+  </div>
+  <div class="stat-box">
+    <div class="stat-label">200 OK</div>
+    <div class="stat-value green" id="stat-200">0</div>
+  </div>
+  <div class="stat-box">
+    <div class="stat-label">301/302 Dirs</div>
+    <div class="stat-value orange" id="stat-301">0</div>
+  </div>
+  <div class="stat-box">
+    <div class="stat-label">Errors 5xx</div>
+    <div class="stat-value red" id="stat-500">0</div>
+  </div>
+  <div class="stat-box">
+    <div class="stat-label">New (latest)</div>
+    <div class="stat-value blue" id="stat-new">0</div>
+  </div>
+</div>
+
+<div class="main">
+  <!-- Sessions -->
+  <div class="sessions-panel">
+    <div class="panel-title">Sessions</div>
+    <div class="session-list" id="session-list"></div>
+  </div>
+
+  <!-- Tree -->
+  <div class="tree-panel">
+    <div class="panel-title">Directory Tree</div>
+    <div class="tree-container" id="tree-container">
+      <div class="no-data">Load a JSON to see tree</div>
+    </div>
+  </div>
+
+  <!-- Results -->
+  <div class="results-panel">
+    <div class="results-toolbar">
+      <button class="filter-btn active" data-filter="all" onclick="setFilter('all', this)">All</button>
+      <button class="filter-btn" data-filter="200" onclick="setFilter('200', this)">200</button>
+      <button class="filter-btn" data-filter="301" onclick="setFilter('301', this)">301</button>
+      <button class="filter-btn" data-filter="302" onclick="setFilter('302', this)">302</button>
+      <button class="filter-btn" data-filter="500" onclick="setFilter('500', this)">5xx</button>
+      <button class="filter-btn" data-filter="new" onclick="setFilter('new', this)">🔵 New</button>
+      <span class="path-breadcrumb">Path: <span id="current-path">all</span></span>
+      <div style="display:flex;gap:8px;align-items:center">
+          <div style="position:relative;">
+            <input id="delete-redirect-input" type="text" placeholder="Delete if redirect equals..."
+              style="background:var(--surface2);border:1px solid var(--border);color:var(--text);
+              font-family:'JetBrains Mono',monospace;font-size:11px;padding:4px 10px;border-radius:4px;
+              width:200px;outline:none;"
+              onfocus="this.style.borderColor='var(--accent)'"
+              onblur="this.style.borderColor='var(--border)'"
+              onkeydown="if(event.key==='Enter')deleteRedirectPoints()"
+              title="Enter exact redirect URL (protocol, www, trailing slash are ignored)">
+            <div style="position:absolute;top:100%;left:0;right:0;font-size:9px;color:var(--text-dim);margin-top:2px;white-space:nowrap;">
+              Exact match (ignores protocol/www/trailing slash)
+            </div>
+          </div>
+          <button class="filter-btn" onclick="deleteRedirectPoints()" style="background:rgba(255,68,68,0.1);color:var(--danger);border-color:var(--danger);">🗑 Delete</button>
+        </div>
+      <div style="margin-left:auto;display:flex;gap:8px;align-items:center">
+        <button class="export-btn" onclick="exportCurrentSession301()">⬇ 301/302 (session)</button>
+        <span style="color:var(--border);font-size:16px">|</span>
+        <input id="export-status" type="text" placeholder="e.g. 200 or 301,405"
+          style="background:var(--surface2);border:1px solid var(--border);color:var(--text);
+          font-family:'JetBrains Mono',monospace;font-size:11px;padding:4px 10px;border-radius:4px;
+          width:150px;outline:none;"
+          onfocus="this.style.borderColor='var(--accent)'"
+          onblur="this.style.borderColor='var(--border)'"
+          onkeydown="if(event.key==='Enter')exportByStatus()">
+        <button class="export-btn" onclick="exportByStatus()">⬇ Export (all)</button>
+      </div>
+    </div>
+    <div class="table-wrap" id="table-wrap">
+      <div class="empty-state">
+        <div class="empty-icon">◎</div>
+        <div class="empty-title">No data loaded</div>
+        <div class="empty-sub">Load one or more ffuf JSON result files.<br>Drag & drop anywhere on the page.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ---- STATE ----
+let sessions = []; // [{name, time, results:[...], cmdline}]
+let activeSession = null; // index
+let currentFilter = 'all';
+let currentPath = null; // null = show all
+let treeOpenState = {}; // path -> bool
+let knownUrls = new Set(); // urls from all sessions except latest, for "new" detection
+
+// ---- UPLOAD ----
+document.getElementById('file-input').addEventListener('change', e => {
+  [...e.target.files].forEach(loadFile);
+  e.target.value = '';
+});
+
+document.addEventListener('dragover', e => { e.preventDefault(); document.getElementById('drop-overlay').classList.add('show'); });
+document.addEventListener('dragleave', e => { if (!e.relatedTarget) document.getElementById('drop-overlay').classList.remove('show'); });
+document.addEventListener('drop', e => {
+  e.preventDefault();
+  document.getElementById('drop-overlay').classList.remove('show');
+  [...e.dataTransfer.files].forEach(loadFile);
+});
+
+function loadFile(file) {
+  const reader = new FileReader();
+  reader.onload = ev => {
+    try {
+      const data = JSON.parse(ev.target.result);
+      const results = data.results || [];
+      const session = {
+        name: file.name.replace('.json',''),
+        time: data.time || '',
+        cmdline: data.config?.cmdline || data.commandline || '',
+        results: results.map(r => ({
+          url: r.url,
+          fuzz: r.input?.FUZZ || '',
+          status: r.status,
+          length: r.length,
+          words: r.words,
+          lines: r.lines,
+          redirect: r.redirectlocation || '',
+          contentType: r['content-type'] || '',
+        }))
+      };
+      sessions.push(session);
+      // rebuild known URLs (all sessions except last)
+      rebuildKnownUrls();
+      activeSession = sessions.length - 1;
+      renderAll();
+    } catch(err) {
+      alert('Failed to parse JSON: ' + err.message);
+    }
+  };
+  reader.readAsText(file);
+}
+
+function rebuildKnownUrls() {
+  knownUrls = new Set();
+  for (let i = 0; i < sessions.length - 1; i++) {
+    sessions[i].results.forEach(r => knownUrls.add(r.url));
+  }
+}
+
+// ---- RENDER ALL ----
+function renderAll() {
+  document.getElementById('session-count').textContent = sessions.length;
+  renderSessionList();
+  renderStats();
+  renderTree();
+  renderTable();
+  updateDomainDisplay();
+}
+
+// ---- SESSIONS ----
+function renderSessionList() {
+  const el = document.getElementById('session-list');
+  if (!sessions.length) { el.innerHTML = '<div class="no-data">No sessions</div>'; return; }
+  el.innerHTML = sessions.map((s, i) => `
+    <div class="session-item ${i === activeSession ? 'active' : ''}" onclick="selectSession(${i})">
+      <div class="session-name">${s.name}</div>
+      <div class="session-meta">${s.results.length} results</div>
+    </div>
+  `).join('');
+}
+
+function selectSession(i) {
+  activeSession = i;
+  currentPath = null;
+  renderSessionList();
+  renderStats();
+  renderTree();
+  renderTable();
+  updateDomainDisplay();
+}
+
+// ---- DOMAIN DISPLAY ----
+function updateDomainDisplay() {
+  const domainDisplay = document.getElementById('domain-display');
+  
+  if (activeSession === null || !sessions[activeSession] || !sessions[activeSession].results.length) {
+    domainDisplay.style.display = 'none';
+    domainDisplay.textContent = '';
+    domainDisplay.onclick = null;
+    domainDisplay.title = '';
+    return;
+  }
+
+  // Получаем все уникальные домены из текущей сессии
+  const domains = new Set();
+  sessions[activeSession].results.forEach(r => {
+    try {
+      const url = new URL(r.url);
+      domains.add(url.hostname);
+    } catch {}
+  });
+
+  const domainArray = Array.from(domains);
+  
+  if (domainArray.length === 0) {
+    domainDisplay.style.display = 'none';
+    domainDisplay.textContent = '';
+    domainDisplay.onclick = null;
+    domainDisplay.title = '';
+  } else if (domainArray.length === 1) {
+    // Если только один домен - показываем его
+    const domain = domainArray[0];
+    domainDisplay.textContent = domain;
+    domainDisplay.title = 'Click to copy: ' + domain;
+    domainDisplay.style.display = 'flex';
+    domainDisplay.style.alignItems = 'center';
+    domainDisplay.onclick = () => copyToClipboard(domain);
+  } else {
+    // Если несколько доменов - показываем количество
+    domainDisplay.textContent = `${domainArray.length} domains`;
+    domainDisplay.title = 'Click to copy all domains\n' + domainArray.join('\n');
+    domainDisplay.style.display = 'flex';
+    domainDisplay.style.alignItems = 'center';
+    // Переопределяем обработчик для копирования всех доменов
+    domainDisplay.onclick = () => copyToClipboard(domainArray.join('\n'));
+  }
+}
+
+// ---- STATS ----
+function renderStats() {
+  const results = getAllResults();
+  const s200 = results.filter(r => r.status === 200).length;
+  const s301 = results.filter(r => r.status === 301 || r.status === 302).length;
+  const s5xx = results.filter(r => r.status >= 500).length;
+  const sNew = results.filter(r => !knownUrls.has(r.url)).length;
+  document.getElementById('stat-total').textContent = results.length;
+  document.getElementById('stat-200').textContent = s200;
+  document.getElementById('stat-301').textContent = s301;
+  document.getElementById('stat-500').textContent = s5xx;
+  document.getElementById('stat-new').textContent = activeSession === sessions.length - 1 ? sNew : '—';
+}
+
+function getAllResults() {
+  if (activeSession === null || !sessions[activeSession]) return [];
+  return sessions[activeSession].results;
+}
+
+// ---- TREE ----
+function buildTree(results) {
+  const tree = {}; // path segments -> {children, status, isDir}
+  results.forEach(r => {
+    const url = new URL(r.url);
+    const parts = url.pathname.split('/').filter(Boolean);
+    // root
+    let node = tree;
+    parts.forEach((part, idx) => {
+      if (!node[part]) node[part] = { _children: {}, _status: null, _url: null, _redirect: null };
+      if (idx === parts.length - 1) {
+        node[part]._status = r.status;
+        node[part]._url = r.url;
+        node[part]._redirect = r.redirect;
+        node[part]._isNew = r._isNew !== undefined ? r._isNew : !knownUrls.has(r.url);
+      }
+      node = node[part]._children;
+    });
+  });
+  return tree;
+}
+
+function getAllResultsAllSessions() {
+  // Merge all sessions, mark which session each result came from
+  const seen = new Map(); // url -> result (latest session wins for status)
+  sessions.forEach((s, si) => {
+    s.results.forEach(r => {
+      seen.set(r.url, { ...r, _sessionIdx: si, _isNew: si === sessions.length - 1 && !knownUrls.has(r.url) });
+    });
+  });
+  return [...seen.values()];
+}
+
+function renderTree() {
+  const results = getAllResultsAllSessions();
+  if (!results.length) { document.getElementById('tree-container').innerHTML = '<div class="no-data">No data</div>'; return; }
+  const tree = buildTree(results);
+  let html = renderTreeNodes(tree, '', 0);
+  document.getElementById('tree-container').innerHTML = html || '<div class="no-data">Empty</div>';
+}
+
+function renderTreeNodes(node, parentPath, depth) {
+  return Object.keys(node).filter(k => !k.startsWith('_')).map(key => {
+    const child = node[key];
+    const fullPath = parentPath + '/' + key;
+    const hasChildren = Object.keys(child._children).length > 0;
+    const isOpen = treeOpenState[fullPath] !== false; // default open
+    const status = child._status;
+    const isNew = child._isNew;
+
+    let badgeClass = 'badge-other';
+    if (status === 200) badgeClass = 'badge-200';
+    else if (status === 301) badgeClass = 'badge-301';
+    else if (status === 302) badgeClass = 'badge-302';
+    else if (status >= 500) badgeClass = 'badge-500';
+
+    const indent = '<span class="tree-indent"></span>'.repeat(depth);
+    const arrow = hasChildren ? `<span class="tree-arrow ${isOpen ? 'open' : ''}" id="arr-${CSS.escape(fullPath)}">▶</span>` : '<span class="tree-arrow"></span>';
+    const icon = hasChildren ? '📁' : '📄';
+    const badge = status ? `<span class="tree-badge ${badgeClass}">${status}</span>` : '';
+    const newBadge = isNew && activeSession === sessions.length - 1 ? '<span class="tree-new-badge">NEW</span>' : '';
+
+    let html = `<div class="tree-node ${currentPath === fullPath ? 'selected' : ''}"
+      onclick="treeClick('${fullPath.replace(/'/g, "\\'")}', ${hasChildren})"
+      id="node-${CSS.escape(fullPath)}">
+      ${indent}${arrow}<span class="tree-icon">${icon}</span>
+      <span class="tree-name">${key}</span>${badge}${newBadge}
+    </div>`;
+
+    if (hasChildren && isOpen) {
+      html += renderTreeNodes(child._children, fullPath, depth + 1);
+    }
+    return html;
+  }).join('');
+}
+
+function treeClick(fullPath, hasChildren) {
+  if (hasChildren) {
+    treeOpenState[fullPath] = !(treeOpenState[fullPath] !== false);
+  }
+  currentPath = currentPath === fullPath ? null : fullPath;
+  document.getElementById('current-path').textContent = currentPath || 'all';
+  renderTree();
+  renderTable();
+}
+
+// ---- TABLE ----
+function setFilter(f, btn) {
+  currentFilter = f;
+  document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  renderTable();
+}
+
+function renderTable() {
+  const wrap = document.getElementById('table-wrap');
+  let results = getAllResults();
+
+  if (!results.length) {
+    wrap.innerHTML = `<div class="empty-state">
+      <div class="empty-icon">◎</div>
+      <div class="empty-title">No data loaded</div>
+      <div class="empty-sub">Load one or more ffuf JSON result files.</div>
+    </div>`;
+    return;
+  }
+
+  // filter by tree path
+  if (currentPath) {
+    results = results.filter(r => {
+      const url = new URL(r.url);
+      return url.pathname.startsWith(currentPath);
+    });
+  }
+
+  // filter by status
+  if (currentFilter === '200') results = results.filter(r => r.status === 200);
+  else if (currentFilter === '301') results = results.filter(r => r.status === 301);
+  else if (currentFilter === '302') results = results.filter(r => r.status === 302);
+  else if (currentFilter === '500') results = results.filter(r => r.status >= 500);
+  else if (currentFilter === 'new') results = results.filter(r => !knownUrls.has(r.url));
+
+  if (!results.length) {
+    wrap.innerHTML = '<div class="no-data">No results match current filter</div>';
+    return;
+  }
+
+  const isLatest = activeSession === sessions.length - 1;
+
+  const rows = results.map(r => {
+    const isNew = isLatest && !knownUrls.has(r.url);
+    let sc = 's-other';
+    if (r.status === 200) sc = 's-200';
+    else if (r.status === 301 || r.status === 302) sc = 's-301';
+    else if (r.status >= 500) sc = 's-500';
+    const newTag = isNew ? '<span class="new-tag">NEW</span>' : '';
+    const urlPath = (() => { try { return new URL(r.url).pathname; } catch { return r.url; } })();
+    return `<tr class="${isNew ? 'is-new' : ''}">
+      <td class="td-status ${sc}">${r.status}</td>
+      <td class="td-url">${urlPath}${newTag}</td>
+      <td class="td-redirect">${r.redirect || '—'}</td>
+      <td class="td-size">${r.length}</td>
+      <td class="td-words">${r.words}</td>
+    </tr>`;
+  }).join('');
+
+  wrap.innerHTML = `<table>
+    <thead>
+      <tr>
+        <th style="width:60px">Status</th>
+        <th>Path</th>
+        <th>Redirect</th>
+        <th style="width:70px">Size</th>
+        <th style="width:60px">Words</th>
+      </tr>
+    </thead>
+    <tbody>${rows}</tbody>
+  </table>`;
+}
+
+// ---- COPY TO CLIPBOARD ----
+function copyToClipboard(text) {
+  navigator.clipboard.writeText(text).then(() => {
+    // Визуальная обратная связь
+    const event = new CustomEvent('show-toast', { detail: { message: `Copied: ${text}`, type: 'success' } });
+    document.dispatchEvent(event);
+  }).catch(err => {
+    console.error('Failed to copy:', err);
+    const event = new CustomEvent('show-toast', { detail: { message: 'Copy failed', type: 'error' } });
+    document.dispatchEvent(event);
+  });
+}
+
+// ---- TOAST NOTIFICATION ----
+(function() {
+  // Создаем элемент для уведомлений
+  const toast = document.createElement('div');
+  toast.style.cssText = `
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    padding: 10px 16px;
+    border-radius: 6px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    z-index: 10000;
+    opacity: 0;
+    transform: translateY(-10px);
+    transition: opacity 0.3s, transform 0.3s;
+    pointer-events: none;
+  `;
+  document.body.appendChild(toast);
+
+  document.addEventListener('show-toast', (e) => {
+    const { message, type } = e.detail;
+    toast.textContent = message;
+    toast.style.background = type === 'success' ? 'rgba(0,255,136,0.15)' : 'rgba(255,68,68,0.15)';
+    toast.style.color = type === 'success' ? 'var(--accent)' : 'var(--danger)';
+    toast.style.border = `1px solid ${type === 'success' ? 'var(--accent)' : 'var(--danger)'}`;
+    
+    toast.style.opacity = '1';
+    toast.style.transform = 'translateY(0)';
+    
+    setTimeout(() => {
+      toast.style.opacity = '0';
+      toast.style.transform = 'translateY(-10px)';
+    }, 2000);
+  });
+})();
+
+// ---- DELETE REDIRECT POINTS ----
+function deleteRedirectPoints() {
+  const input = document.getElementById('delete-redirect-input').value.trim();
+  if (!input) {
+    alert('Enter redirect URL to delete');
+    return;
+  }
+
+  if (activeSession === null || !sessions[activeSession]) {
+    alert('No active session');
+    return;
+  }
+
+  const session = sessions[activeSession];
+  const originalCount = session.results.length;
+  
+  // Нормализуем введенный URL для сравнения
+  const normalizedInput = normalizeRedirectUrl(input);
+  
+  // Фильтруем результаты, оставляя только те, у которых redirect НЕ равен указанному URL
+  session.results = session.results.filter(r => {
+    const redirect = r.redirect || '';
+    if (!redirect) return true; // Оставляем записи без редиректа
+    
+    const normalizedRedirect = normalizeRedirectUrl(redirect);
+    return normalizedRedirect !== normalizedInput;
+  });
+
+  const removedCount = originalCount - session.results.length;
+  
+  // Обновляем knownUrls после удаления
+  rebuildKnownUrls();
+  
+  // Перерисовываем интерфейс
+  renderAll();
+  
+  alert(`Removed ${removedCount} points with redirect exactly matching: ${input}`);
+}
+
+// Нормализация URL для сравнения редиректов
+function normalizeRedirectUrl(url) {
+  if (!url) return '';
+  
+  try {
+    // Приводим к нижнему регистру и убираем пробелы
+    let normalized = url.toLowerCase().trim();
+    
+    // Пытаемся распарсить как URL
+    let parsed;
+    try {
+      // Добавляем протокол, если его нет, для корректного парсинга
+      if (!normalized.startsWith('http://') && !normalized.startsWith('https://')) {
+        parsed = new URL('http://' + normalized);
+      } else {
+        parsed = new URL(normalized);
+      }
+    } catch {
+      // Если не удалось распарсить, возвращаем как есть
+      return normalized;
+    }
+    
+    // Собираем нормализованный URL: hostname + pathname
+    // Игнорируем протокол, порт, query параметры, хэш
+    let result = parsed.hostname.toLowerCase();
+    
+    // Убираем www.
+    result = result.replace(/^www\./, '');
+    
+    // Добавляем путь, если он есть и не равен "/"
+    if (parsed.pathname && parsed.pathname !== '/') {
+      // Убираем завершающий слэш из пути
+      result += parsed.pathname.replace(/\/$/, '');
+    }
+    
+    return result;
+  } catch {
+    // Если произошла ошибка, возвращаем как есть в нижнем регистре
+    return url.toLowerCase().trim();
+  }
+}
+
+// ---- EXPORT ----
+function exportCurrentSession301() {
+  const results = getAllResults();
+  const dirs = results
+    .filter(r => r.status === 301 || r.status === 302)
+    .map(r => { try { return new URL(r.url).pathname; } catch { return r.url; } });
+
+  if (!dirs.length) { alert('No 301/302 results in current session'); return; }
+
+  const blob = new Blob([dirs.join('\n')], { type: 'text/plain' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  const sname = sessions[activeSession]?.name || 'ffuf';
+  a.download = `301_302_${sname}.txt`;
+  a.click();
+}
+
+function exportByStatus() {
+  const input = document.getElementById('export-status').value.trim();
+
+  // Parse requested statuses: "200,301,302" or "200" or "5xx" etc
+  const requestedStatuses = input.split(',').map(s => s.trim()).filter(Boolean);
+
+  if (!requestedStatuses.length) {
+    alert('Enter status code(s) to export, e.g. 200 or 301,302');
+    return;
+  }
+
+  // Collect from ALL sessions, deduplicated
+  const seen = new Set();
+  const lines = [];
+
+  sessions.forEach(s => {
+    s.results.forEach(r => {
+      const matches = requestedStatuses.some(pat => {
+        if (pat.endsWith('xx')) {
+          const prefix = pat[0];
+          return String(r.status).startsWith(prefix);
+        }
+        return r.status === parseInt(pat);
+      });
+      if (!matches) return;
+      try {
+        const path = new URL(r.url).pathname;
+        if (!seen.has(path)) { seen.add(path); lines.push(path); }
+      } catch {
+        if (!seen.has(r.url)) { seen.add(r.url); lines.push(r.url); }
+      }
+    });
+  });
+
+  if (!lines.length) {
+    alert(`No results with status ${input} found across all sessions`);
+    return;
+  }
+
+  const blob = new Blob([lines.join('\n')], { type: 'text/plain' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `export_${input.replace(/,/g,'-')}_all_sessions.txt`;
+  a.click();
+}
+</script>
+</body>
+</html>

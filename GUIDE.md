@@ -1,217 +1,257 @@
 # Руководство по запуску и параметрам
 
-Это руководство описывает запуск фазинга через `crew_ffuf.py`, работу агента `ffuf_agent.py`, назначение всех параметров и рекомендуемые значения. Документ актуален для режимов `path` и `vhost` и учитывает динамические рестарты, анти‑rate, фильтры, телеметрию и UI.
-
 ## Установка и окружение
 
-- `.env`
-  - `OPENAI_BASE_URL` — базовый URL провайдера совместимого с OpenAI API.
-  - `OPENAI_API_KEY` — ключ доступа.
-  - `OPENAI_MODEL_NAME` — модель по умолчанию.
-- Чтение `.env` выполняется при старте (`crew_ffuf.py:35`).
-- Модель берётся из `OPENAI_MODEL_NAME`, но может быть передана через `--llm-model` (`crew_ffuf.py:60`).
+`.env` в корне проекта — настройка LLM chain (основной + fallback):
 
-## Запуск
+```
+# Основной провайдер
+OPENAI_BASE_URL=https://openrouter.ai/api/v1
+OPENAI_API_KEY=sk-...
+OPENAI_MODEL_NAME=x-ai/grok-4.1-fast
 
-Пример базового запуска в режиме `path`:
-
-```bash
-python3 crew_ffuf.py \
-  --targets targets.txt \
-  --wordlist /opt/wordlist-for-fuzz/content_fuzz/common.txt \
-  --workers 3 \
-  --output-dir results
+# Fallback провайдер (опционально)
+VOIDAI_BASE_URL=https://api.voidai.app/v1
+VOIDAI_API_KEY=sk-...
+VOIDAI_MODEL_NAME=magistral-medium-latest
 ```
 
-Пример запуска с LLM и порогами ошибок:
+При ошибке основного (timeout/401/429) — автопереключение на fallback. В логах: `LLM success/fail <url>`.
 
-```bash
-python3 crew_ffuf.py \
-  --targets targets.txt \
-  --wordlist /opt/wordlist-for-fuzz/content_fuzz/common.txt \
-  --workers 3 \
-  --mode vhost \
-  --host-suffix .domain \
-  --llm-model gpt-4o-mini \
-  --llm-trigger 50 \
-  --early-error-rate 0.3 \
-  --early-error-window 30 \
-  --mid-error-rate 0.25 \
-  --mid-error-window 1000
-```
-
-## Параметры CLI и их смысл
-
-- `--targets` (обязательный) — путь к файлу со списком целей (по одной в строке). `crew_ffuf.py:53`
-- `--wordlist` (обязательный) — путь к словарю. `crew_ffuf.py:54`
-- `--workers` — число параллельных воркеров. По умолчанию `2`. `crew_ffuf.py:55`
-- `--output-dir` — куда писать результаты CSV и лог `agent_events.jsonl`. По умолчанию `results`. `crew_ffuf.py:56,78`
-- `--blocked-dir` — куда писать JSON‑файлы блокировок (stall/ban/errors/exec). По умолчанию `blocked`. `crew_ffuf.py:57`
-- `--max-restarts` — максимум рестартов на задачу (включая stall/ban/ранние ошибки/LLM триггеры). По умолчанию `2`. `crew_ffuf.py:58`
-- `--stall-seconds` — порог «молчания» процесса, после которого воркер считается зависшим и перезапускается. По умолчанию `30`. `crew_ffuf.py:59`, обработка в `ffuf_agent.py:130–157`
-- `--llm-model` — модель LLM. По умолчанию `OPENAI_MODEL_NAME` или `x-ai/grok-4.1-fast`. `crew_ffuf.py:60`
-- `--llm-trigger` — порог прогресса для первого LLM‑рестарта по телеметрии. По умолчанию `50`. `crew_ffuf.py:61`, используется в `ffuf_agent.py:638–662`
-- `--header` — дополнительные HTTP заголовки для ffuf, можно указывать несколько. `crew_ffuf.py:62`
-- `--max-error-rate` — максимальная доля ошибок от текущего прогресса (`errors/cur`), при превышении блокируем задачу «errors». По умолчанию `0.5`. `crew_ffuf.py:63`, логика `ffuf_agent.py:235–248` и `ffuf_agent.py:555–564`
-- `--error-block-min` — минимальный прогресс для учёта `max_error_rate`. По умолчанию `200`. `crew_ffuf.py:64`
-- `--ban-403-rate` — доля `403` от статусов, при которой подозревается бан и включается анти‑rate/бэкофф. По умолчанию `0.6`. `crew_ffuf.py:65`, `ffuf_agent.py:590–607`
-- `--ban-429-rate` — доля `429` от статусов для бан‑логики. По умолчанию `0.2`. `crew_ffuf.py:66`, `ffuf_agent.py:590–607`
-- `--threads`/`-t` — передаётся в ffuf (`-t`). Если не указано, можно адаптировать через анти‑rate. `crew_ffuf.py:67`, `ffuf_agent.py:83–100, 393–396`
-- `--mode` — `path` или `vhost`. В `vhost` используется заголовок `Host: FUZZ{suffix}` и вывод в `results/vhost`. `crew_ffuf.py:68`, `ffuf_agent.py:413–437, 496`
-- `--host-suffix` — суффикс для VHOST‑фазинга (например, `.domain`). `crew_ffuf.py:69`, `ffuf_agent.py:429–431`
-- `--early-error-rate` — «ранний» порог ошибок от прогресса для быстрого снижения `-rate` и рестарта. По умолчанию `0.3`. `crew_ffuf.py:70`, `ffuf_agent.py:568–588`
-- `--early-error-window` — минимальный прогресс для раннего порога. По умолчанию `30`. `crew_ffuf.py:71`
-- `--ban-backoff-seconds` — пауза при подозрении на бан. По умолчанию `60`. `crew_ffuf.py:72`, `ffuf_agent.py:624–629`
-- `--mid-error-rate` — «средний» порог ошибок от текущего прогресса (`errors/cur`), при достижении вызывается LLM и выполняется рестарт с применением фильтров/анти‑rate. По умолчанию `None` (выключено). `crew_ffuf.py:72–73`, `ffuf_agent.py:600–629`
-- `--mid-error-window` — минимальный прогресс для оценки среднего порога. По умолчанию `None`. `crew_ffuf.py:72–73`
-
-## Поведение, рестарты и анти‑rate
-
-- Рестарты происходят при:
-  - Ранний всплеск ошибок: уменьшаем `-rate` (в 2 раза, минимум `5`) и перезапускаем (`ffuf_agent.py:568–588`).
-  - Подозрение на бан по `403/429`: корректируем `-t`, `-p`, можем вызвать LLM рекомендации, делаем паузу `backoff` и перезапуск (`ffuf_agent.py:590–629`).
-  - Stall: «молчание» дольше `--stall-seconds` → перезапуск (`ffuf_agent.py:130–157, 630–636`).
-  - LLM‑триггер по прогрессу: рекомендуем фильтры (`fl/fw/fs`) и при реальном изменении — перезапуск (`ffuf_agent.py:638–662`).
-  - Средний порог ошибок (`mid-error-rate`/`mid-error-window`): запрашиваем фильтры/анти‑rate у LLM и перезапускаем (`ffuf_agent.py:600–629`).
-- Анти‑rate может изменять параметры запуска:
-  - `-rate` — скорость запросов.
-  - `-t` — количество потоков.
-  - `-p` — задержка между запросами.
-  - `backoff` — пауза перед перезапуском.
-
-## Фильтры
-
-- Базовые `fc` по умолчанию — только `{403,404}` и не расширяются моделью: любые попытки добавить другие статус‑коды игнорируются (`ffuf_agent.py:182–196, 439–445`).
-- Рекомендуется фокусироваться на `fl`, `fw`, `fs` для устранения шума/дубликатов.
-- Применение фильтров логируется, итоговые фильтры видны в сообщениях `finished ok` и в UI (`crew_ffuf.py:356–366`).
-
-## UI: Active Jobs
-
-- Колонки: `Name`, `Status`, `Reason`, `Progress`, `LastOut(s)`, `Errors`, `LLM Filters`, `Anti-rate` (`crew_ffuf.py:103–184`).
-- Цвета статусов: `backoff` — жёлтый, `stall` — красный, `restarting` — циан (`crew_ffuf.py:175–183`).
-- В режиме `vhost` таблица ограничена максимум 10 строками, в `path` — 20 (`crew_ffuf.py:119`).
-- Сводка внизу показывает итоги: `Total/Completed/OK/Failed` (`crew_ffuf.py:392–406`).
-
-## Логи
-
-- Детальный агентный лог: `agent_events.jsonl` в `--output-dir`.
-- Лог содержит каждое событие с полями статуса, причины, прогресса и текущих/финальных фильтров (`crew_ffuf.py:368–389`).
-- FFUF пишет debug‑лог в `*.ffuf.log` рядом с CSV (`ffuf_agent.py:413–420`).
-
-## Результаты
-
-- Итоговые результаты задач печатаются построчно (читаемо), формат строки:
-  - `name :: OK|FAILED :: csv=... :: filters=... :: statuses=...` (`crew_ffuf.py:510–518` заменено на построчный вывод).
-- CSV‑файлы сохраняются в `--output-dir`, для `vhost` — в подпапке `vhost` (`ffuf_agent.py:496`).
-
-## Рекомендации по настройке
-
-- Для шумных хостов:
-  - Установите `--llm-trigger 50–100` для ранней оптимизации фильтров.
-  - `--mid-error-rate 0.2–0.3` и `--mid-error-window 500–2000` чтобы реагировать на накопление ошибок.
-  - Снизьте `--ban-backoff-seconds` до `20–30`, если WAF быстро «отпускает».
-- Для жёстких WAF:
-  - Увеличьте `--max-restarts` до `5–8`.
-  - Следите за `Anti-rate` колонкой, корректируйте `-t`/`-p`/`-rate` через пороги.
-
-## Примечания
-
-- Вся телеметрия (прогресс/ошибки/статусы) учитывается из stdout ffuf (`ffuf_agent.py:458–479`).
-- Рестарт всегда гарантированно запускает новый ffuf (без зависаний) (`ffuf_agent.py:715–716`).
-- В UI причина рестарта отражается: `llm_filters`, `early_error`, `ban_backoff`, `mid_error` (`crew_ffuf.py:263–274`).
-
-
-## Запуск
-
-python /opt/my-tools/ai-agents-pentest/crew_ffuf.py --targets domain.txt --workers 10 --wordlist /opt/wordlist-for-fuzz/content_fuzz/content_discovery_nullenc0de.txt --llm-trigger 100 --mid-error-rate 0.05 --mid-error-window 2000 --ban-backoff-seconds 500 --header 'X-Pentest: GHACK'
-
-
-/opt/my-tools/ai-agents-pentest/venv/bin/python3 /opt/my-tools/ai-agents-pentest/crew_ffuf.py --targets targets.txt --wordlists /opt/wordlist-for-fuzz/content_fuzz/common.txt /opt/wordlist-for-fuzz/content_fuzz/fuzz-Bo0oM.txt --workers 3 --mid-error-rate 0.2 --mid-error-window 300 --late-error-rate 0.02 --late-error-window 2000 --ban-backoff-seconds 300 --max-restarts 5 --llm-model x-ai/grok-4.1-fast
-
-
-
-
-
-
-
-
-# Руководство по запуску и параметрам
-
-Это руководство описывает запуск фазинга через `crew_ffuf.py`, работу агента `ffuf_agent.py`, назначение всех параметров и рекомендуемые значения. Документ актуален для режимов `path` и `vhost` и учитывает динамические рестарты, анти‑rate, фильтры, телеметрию, UI, **множественные wordlists с fallback** и **LLM chain (failover)**.
-
-## Установка и окружение
-
-- `.env` — поддержка LLM chain (несколько провайдеров):
-  ```
-  # OpenRouter (primary)
-  OPENAI_BASE_URL=https://openrouter.ai/api/v1
-  OPENAI_API_KEY=...
-  OPENAI_MODEL_NAME=x-ai/grok-4.1-fast
-
-  # VoidAI (fallback)
-  VOIDAI_BASE_URL=https://api.voidai.app/v1
-  VOIDAI_API_KEY=...
-  VOIDAI_MODEL_NAME=magistral-medium-latest
-  ```
-  - При ошибке первого (timeout/401/429) — авто-переключение на следующий. Логи: `LLM success/fail <url>...`.
-  - Чтение при старте [crew_ffuf.py:35].
+---
 
 ## Запуск
 
 Базовый (path):
 
 ```bash
-venv/bin/python crew_ffuf.py \
+python3 crew_ffuf.py \
   --targets targets.txt \
-  --wordlists /opt/wordlist-for-fuzz/content_fuzz/common.txt /opt/wordlist-for-fuzz/other.txt \
-  --workers 3 \
-  --output-dir results
+  --wordlists /opt/wordlist-for-fuzz/content_fuzz/common.txt \
+  --workers 3
 ```
 
-С LLM chain + error handling:
+С несколькими словарями (fallback по порядку):
 
 ```bash
-venv/bin/python crew_ffuf.py \
+python3 crew_ffuf.py \
   --targets targets.txt \
-  --wordlists wl1.txt wl2.txt \
-  --workers 3 \
-  --mode vhost \
-  --host-suffix .domain \
-  --llm-model gpt-4o-mini \
-  --llm-trigger 50 \
-  --early-error-rate 0.3 \
-  --late-error-rate 0.02 --late-error-window 2000 --late-error-min-progress 80000
+  --wordlists common.txt fuzz-Bo0oM.txt \
+  --workers 5 \
+  --methods GET POST \
+  --max-restarts 3
 ```
 
-**Wordlists fallback**: Если CSV пуст после wl1 (нет строк/размер=0), рестарт с wl2. Логи: `Trying wordlist 1/2: common.txt`, `Success with wordlist wl2.txt`.
+Vhost-режим:
+
+```bash
+python3 crew_ffuf.py \
+  --targets targets.txt \
+  --wordlists subdomains.txt \
+  --workers 3 \
+  --mode vhost \
+  --host-suffix .example.com
+```
+
+Deep-scan (полная команда):
+
+```bash
+python3 crew_ffuf.py \
+  --targets targets.txt \
+  --wordlists /opt/wordlist-for-fuzz/content_fuzz/common.txt /opt/wordlist-for-fuzz/content_fuzz/fuzz-Bo0oM.txt \
+  --workers 3 \
+  --methods GET POST \
+  --mode deep-scan \
+  --deep-source-dir /opt/my-tools/ai-ffuf/results \
+  --deep-depth 3 \
+  --header "X-Pentest: GHACK" \
+  --max-restarts 3 \
+  --rate 50 \
+  --monitor-period-seconds 10 \
+  --monitor-stall-seconds 60 \
+  --monitor-error-window-seconds 120 \
+  --monitor-error-growth 20 \
+  --ban-403-rate 0.6 \
+  --ban-429-rate 0.2
+```
+
+---
 
 ## Параметры CLI
 
-- `--targets` (req) — файл целей.
-- **`--wordlists` (req, nargs='+')** — список словарей. Fallback: пустой CSV → следующий wl [ffuf_agent.py:854].
-- `--workers`, `--output-dir`, `--blocked-dir` и др. — как раньше.
-- `--rate`, `--p` — прямой прокид в ffuf.
-- `--llm-model` — модель (chain авто).
-- Error params: `--early-*/--mid-*/--late-error-*`.
+### Основные
 
-## Поведение новых фич
+| Флаг | По умолчанию | Описание |
+|------|-------------|----------|
+| `--targets` | **обязательный** | Файл со списком целей (по одной URL в строке) |
+| `--wordlists` / `--wordlist` | **обязательный** | Список словарей через пробел. Если после первого словаря нет результатов — пробуется следующий (fallback) |
+| `--workers` | `2` | Число параллельных воркеров |
+| `--output-dir` | `results` | Директория для JSON-результатов ffuf и method_summary |
+| `--blocked-dir` | `blocked` | Директория для JSON-файлов заблокированных задач |
+| `--max-restarts` | `2` | Максимум рестартов на одну задачу (метод + словарь) |
 
-- **Wordlists**: Цикл в `run_one` [ffuf_agent.py:854–911]. `_csv_has_results` проверяет CSV [ffuf_agent.py:193].
-- **LLM chain**: `_llm_chat` [ffuf_agent.py:284] и crewai init [crew_ffuf.py:85] — try configs из .env, log success/fail.
-- Рестарты/фильтры/анти-rate — без изменений.
+### HTTP
 
-## Результаты/Логи/UI
+| Флаг | По умолчанию | Описание |
+|------|-------------|----------|
+| `--methods` | `GET POST` | HTTP-методы для фазинга, через пробел. Каждый метод — отдельный скан |
+| `--post-data` | — | Тело POST-запроса, например `a=1&b=FUZZ` |
+| `--header` | — | Дополнительный заголовок `Name: value`. Можно указывать несколько раз |
+| `--mode` | `path` | Режим фазинга: `path` — путь в URL, `vhost` — заголовок Host, `deep-scan` — каскадный фаззинг по редирект-поинтам из seed JSON |
+| `--host-suffix` | `.domain` | Суффикс для vhost-режима: `Host: FUZZ.domain` |
 
-- Логи LLM: `LLM success: https://openrouter...`, fallback на VoidAI.
-- UI: показывает прогресс по wordlist.
-- CSV в `results`, blocked JSON при no_results_all_wordlists.
+### Deep-scan
 
-## Рекомендации
+| Флаг | По умолчанию | Описание |
+|------|-------------|----------|
+| `--deep-source-dir` | `/opt/my-tools/ai-ffuf/results` | Каталог с seed JSON, из которых берутся стартовые 301/302 поинты для deep-scan |
+| `--deep-depth` | `1` | Глубина каскада: сколько шагов (`step1`, `step2`, ...) выполнять |
 
-- Wordlists: большой primary + small fallback.
-- LLM chain: primary OpenRouter, fallback VoidAI/Groq.
-- Тест: `--wordlists small1.txt small2.txt --llm-trigger 5`.
+### Скорость ffuf
 
-## Примечания
+| Флаг | По умолчанию | Описание |
+|------|-------------|----------|
+| `-t` / `--threads` | — | Число потоков ffuf (`-t`) |
+| `--rate` | — | Максимальная скорость запросов в секунду (`-rate`) |
+| `--p` | — | Задержка между запросами в секундах (`-p`), например `0.1` |
 
-[... остальное без изменений]
+### LLM
+
+| Флаг | По умолчанию | Описание |
+|------|-------------|----------|
+| `--llm-model` | `OPENAI_MODEL_NAME` или `x-ai/grok-4.1-fast` | Модель LLM |
+| `--llm-trigger` | `50` | Каждые N обработанных ответов ffuf — вызов LLM для анализа и рекомендации фильтров |
+
+### Мониторинг (watchdog)
+
+Watchdog-поток проверяет состояние ffuf каждые `--monitor-period-seconds`.
+
+| Флаг | По умолчанию | Описание |
+|------|-------------|----------|
+| `--monitor-period-seconds` | `10` | Интервал тика watchdog в секундах |
+| `--monitor-stall-seconds` | `60` | Если нет вывода от ffuf дольше N секунд → drop с причиной `monitor_stall` |
+| `--monitor-error-window-seconds` | `120` | Скользящее окно для подсчёта роста ошибок |
+| `--monitor-error-growth` | `20` | Если ошибки выросли на N за окно → drop с причиной `monitor_error_growth` |
+| `--ban-403-rate` | `0.6` | Если доля 403 от всех ответов ≥ N → drop с причиной `monitor_ban` |
+| `--ban-429-rate` | `0.2` | Если доля 429 от всех ответов ≥ N → drop с причиной `monitor_ban` |
+
+### Дополнительные флаги ffuf
+
+| Флаг | По умолчанию | Описание |
+|------|-------------|----------|
+| `--ffuf-extra` | — | Передать дополнительные флаги в ffuf. Фильтруется по whitelist. Можно указывать несколько раз |
+| `--ffuf-allow` | — | Добавить флаг в whitelist `--ffuf-extra`. Можно указывать несколько раз |
+| `--ffuf-allow-reset` | `false` | Очистить дефолтный whitelist перед применением `--ffuf-allow` |
+
+**Whitelist `--ffuf-extra` (разрешены):**
+```
+-ac -acc -ach -ack -acs -D -e -ic -ignore-body -json -maxtime -maxtime-job
+-mt -r -raw -recursion -recursion-depth -recursion-strategy -s -sa -se -sf
+-silent -split-by-host -timeout -v -x
+```
+
+**Заблокированы в `--ffuf-extra` (управляются агентом):**
+```
+-u -w -of -o -debug-log -mc -fc -fl -fw -fs -rate -p -t -H -X -d
+```
+
+---
+
+## Поведение
+
+### Wordlists fallback
+
+Для каждого метода словари перебираются по порядку. Если ffuf завершился без результатов — пробуется следующий словарь. Если задача заблокирована (`monitor_stall`, `monitor_error_growth`, `monitor_ban`, `llm_drop`) — следующий словарь не пробуется.
+
+### Deep-scan логика
+
+`deep-scan` работает по методам так же, как обычный `path`-режим, но стартует не с общего словаря путей, а с найденных редиректов из seed JSON.
+
+1. Для target + method ищется seed: `{deep_source_dir}/{sanitize_name}.{method}.json`.
+2. Seed пропускается, если файл отсутствует или пустой.
+3. Берутся только ответы `301/302`, где `redirectlocation`:
+   - указывает на тот же `scheme://host`;
+   - остаётся в том же поинте (например `/docs` -> `/docs/` или `/docs/...`).
+   Редиректы на другие поинты/домены отбрасываются.
+4. Для сайта создаётся каталог `results/{sanitize_name}`.
+5. Для каждого шага формируется словарь путей `results/{sanitize_name}/{method}_stepN_paths.txt`.
+6. Запускается ffuf с двумя словарями:
+   - `-w {method}_stepN_paths.txt:PATH`
+   - `-w <обычный словарь>:FUZZ`
+   URL-шаблон: `target/PATH/FUZZ`.
+7. Результат шага пишется в `results/{sanitize_name}/{method}_stepN.json`.
+8. Из `stepN.json` снова извлекаются валидные `301/302` по тем же правилам, и цикл повторяется до `--deep-depth`.
+
+### Фильтры шума (auto-noise)
+
+Агент автоматически определяет шумовые паттерны и добавляет фильтры, после чего перезапускает ffuf.
+
+- **GET/POST**: анализируются паттерны по размеру (`fs`), словам (`fw`), строкам (`fl`). Если паттерн доминирует в ≥92% ответов при ≥40 совпадениях — добавляется фильтр.
+- **HEAD/OPTIONS**: тело ответа отсутствует, поэтому анализируются статус-коды (`fc`). Если статус доминирует в ≥92% ответов при ≥40 совпадениях — добавляется в `fc`.
+- Начальные `fc`: `{400, 403, 404}`.
+- Стабилизация: паттерн должен быть кандидатом 2 тика подряд перед применением.
+
+### LLM-анализ
+
+Каждые `--llm-trigger` ответов ffuf вызывается LLM. LLM может:
+- Рекомендовать фильтры `fl`/`fw`/`fs` → применяются и ffuf перезапускается.
+- Вернуть `drop=true` → задача блокируется с причиной `llm_drop`.
+
+### Рестарты
+
+Рестарт происходит при:
+- Применении noise-фильтра (авто).
+- Рекомендации LLM с изменением фильтров.
+- Превышении `--max-restarts` → блокировка с причиной `restarts`.
+
+---
+
+## Счётчики прогресса
+
+```
+[PROGRESS] [=====>    ] 5/20 (25%) active=3 ok=2 empty=1 blocked=0
+```
+
+| Счётчик | Значение |
+|---------|----------|
+| `ok` | Найдены результаты хотя бы одним методом/словарём |
+| `empty` | Завершено без результатов (все методы и словари пусты) |
+| `blocked` | Остановлено досрочно из-за бана/ошибок/stall/краша |
+
+---
+
+## Причины блокировки
+
+| Причина | Описание |
+|---------|----------|
+| `monitor_stall` | Нет вывода от ffuf дольше `--monitor-stall-seconds` |
+| `monitor_error_growth` | Ошибки выросли на `--monitor-error-growth` за окно `--monitor-error-window-seconds` |
+| `monitor_ban` | Доля 403 или 429 превысила порог |
+| `llm_drop` | LLM вернул `drop=true` |
+| `exec` | ffuf завершился с ненулевым кодом без результатов |
+| `restarts` | Исчерпан лимит `--max-restarts` |
+
+---
+
+## Выходные файлы
+
+| Файл | Описание |
+|------|----------|
+| `results/{name}.{method}.json` | JSON-вывод ffuf с результатами |
+| `results/{name}/{method}_stepN_paths.txt` | Словарь путей для шага deep-scan |
+| `results/{name}/{method}_stepN.json` | JSON шага deep-scan (`step1`, `step2`, ...) |
+| `blocked/{name}.json` | JSON с причиной блокировки, прогрессом и ошибками |
+| `results/method_summary.json` | Сводка по методам для каждой цели |
+| `results/method_diffs.jsonl` | Пути, где ответы отличаются между методами |
+| `results/method_diffs.csv` | То же в CSV |
+
+---
+
+## Итоговый вывод
+
+```
+http_example_com.get :: OK :: reason=- :: out=results/http_example_com.get.json
+  - method=GET ok=True has_results=True reason=- out=results/http_example_com.get.json
+  - method=POST ok=False has_results=False reason=monitor_ban out=-
+SUMMARY total=10 completed=10 ok=7 empty=2 blocked=1
+```
