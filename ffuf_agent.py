@@ -23,6 +23,8 @@ try:
 except Exception:
     repair_json = None
 
+_FILTER_AUDIT_LOCK = threading.Lock()
+
 
 def sanitize_name(target):
     p = urlparse(target)
@@ -662,6 +664,11 @@ class FFUFRunner:
         out_parent = os.path.dirname(out_path)
         if out_parent:
             os.makedirs(out_parent, exist_ok=True)
+        try:
+            if os.path.exists(out_path):
+                os.remove(out_path)
+        except Exception:
+            pass
         self._audit_path = os.path.join(self.out_dir, "filter_audit.jsonl")
         self._audit_event(name, source="runner", action="run_start", data={"out_json": out_path})
 
@@ -789,14 +796,67 @@ def _normalize_path(raw):
     return s
 
 
+def _append_filter_audit(out_dir, record):
+    if not out_dir:
+        return None
+    path = os.path.join(out_dir, "filter_audit.jsonl")
+    line = json.dumps(record, ensure_ascii=False) + "\n"
+    try:
+        os.makedirs(out_dir, exist_ok=True)
+        with _FILTER_AUDIT_LOCK:
+            with open(path, "a", encoding="utf-8") as f:
+                f.write(line)
+        return path
+    except Exception:
+        return path
+
+
+def _redirect_to_dir_path(raw_path):
+    p = _normalize_path(raw_path)
+    if p == "/":
+        return None
+    if p.endswith("/"):
+        d = p.rstrip("/")
+    else:
+        d = p.rsplit("/", 1)[0]
+    if (not d) or d == "/":
+        return None
+    return d.lstrip("/")
+
+
 def _extract_deep_paths_from_json(json_path, target):
     paths, _ = _analyze_deep_seed_json(json_path, target)
     return paths
 
 
+def _load_deep_paths_dict(paths_file):
+    out = []
+    if not paths_file:
+        return out
+    try:
+        with open(paths_file, "r", encoding="utf-8", errors="ignore") as f:
+            for line in f:
+                s = str(line).strip()
+                if not s or s.startswith("#"):
+                    continue
+                out.append(s.strip("/"))
+    except Exception:
+        return []
+    seen = set()
+    cleaned = []
+    for p in out:
+        if not p:
+            continue
+        norm = re.sub(r"/+", "/", p).strip("/")
+        if not norm or norm in seen:
+            continue
+        seen.add(norm)
+        cleaned.append(norm)
+    return cleaned
+
+
 def _analyze_deep_seed_json(json_path, target):
     p_target = urlparse(str(target))
-    target_scheme = (p_target.scheme or "").lower()
     target_host = (p_target.netloc or "").lower()
     out = set()
     stats = {
@@ -804,7 +864,7 @@ def _analyze_deep_seed_json(json_path, target):
         "redirects_301_302": 0,
         "empty_location": 0,
         "cross_domain": 0,
-        "not_same_point": 0,
+        "no_valid_dir": 0,
         "accepted": 0,
     }
     for it in _load_json_results(json_path):
@@ -821,24 +881,19 @@ def _analyze_deep_seed_json(json_path, target):
             stats["empty_location"] += 1
             continue
         p_loc = urlparse(loc)
-        loc_scheme = (p_loc.scheme or "").lower()
-        if (loc_scheme not in ("http", "https")) or (p_loc.netloc or "").lower() != target_host:
-            stats["cross_domain"] += 1
+        if (p_loc.scheme or p_loc.netloc):
+            loc_scheme = (p_loc.scheme or "").lower()
+            if (loc_scheme not in ("http", "https")) or (p_loc.netloc or "").lower() != target_host:
+                stats["cross_domain"] += 1
+                continue
+            loc_path = _normalize_path(p_loc.path)
+        else:
+            loc_path = _normalize_path(p_loc.path or loc)
+        dir_part = _redirect_to_dir_path(loc_path)
+        if not dir_part:
+            stats["no_valid_dir"] += 1
             continue
-        src_url = str(it.get("url") or "")
-        src_path = _normalize_path(urlparse(src_url).path)
-        if src_path == "/":
-            stats["not_same_point"] += 1
-            continue
-        src_base = src_path.rstrip("/")
-        if not src_base:
-            stats["not_same_point"] += 1
-            continue
-        loc_path = _normalize_path(p_loc.path)
-        if not (loc_path == (src_base + "/") or loc_path.startswith(src_base + "/")):
-            stats["not_same_point"] += 1
-            continue
-        out.add(src_base.lstrip("/"))
+        out.add(dir_part)
     stats["accepted"] = len(out)
     return sorted(out), stats
 
@@ -890,6 +945,8 @@ def _run_one_deep_scan(
     ffuf_allow_reset=False,
     deep_source_dir=None,
     deep_depth=1,
+    deep_paths_file=None,
+    deep_paths_merge=False,
 ):
     name = sanitize_name(target)
     meths = [str(m).upper() for m in (methods or ["GET"]) if str(m).strip()]
@@ -898,28 +955,57 @@ def _run_one_deep_scan(
     site_dir = None
     depth_limit = max(1, int(deep_depth or 1))
     source_dir = deep_source_dir or out_dir
+    manual_seed_paths = _load_deep_paths_dict(deep_paths_file)
     for method in meths:
         seed_json = _find_seed_json_path(source_dir, name, method)
-        if not seed_json or not _has_non_empty_results(seed_json):
-            scans.append({"method": method, "step": 0, "ok": False, "has_results": False, "reason": "seed_empty_or_missing", "json": seed_json})
+        current_paths = []
+        seed_stats = None
+        if seed_json and _has_non_empty_results(seed_json):
+            current_paths, seed_stats = _analyze_deep_seed_json(seed_json, target)
+        if manual_seed_paths:
+            if deep_paths_merge:
+                current_paths = sorted(set(current_paths + manual_seed_paths))
+            else:
+                current_paths = list(manual_seed_paths)
+        if not current_paths:
+            reason = "seed_empty_or_missing"
+            if manual_seed_paths:
+                reason = "manual_paths_empty_or_invalid"
+            scans.append({"method": method, "step": 0, "ok": False, "has_results": False, "reason": reason, "json": seed_json})
             continue
         if site_dir is None:
             site_dir = os.path.join(out_dir, name)
             os.makedirs(site_dir, exist_ok=True)
-        current_paths, seed_stats = _analyze_deep_seed_json(seed_json, target)
-        if not current_paths:
-            scans.append(
-                {
-                    "method": method,
-                    "step": 0,
-                    "ok": False,
-                    "has_results": False,
-                    "reason": "seed_no_same_path_redirects",
-                    "reason_detail": seed_stats,
-                    "json": seed_json,
-                }
-            )
-            continue
+        _append_filter_audit(
+            out_dir,
+            {
+                "ts": datetime.now().astimezone().isoformat(timespec="seconds"),
+                "name": f"{name}.{method.lower()}",
+                "target": target,
+                "method": method,
+                "attempt": 0,
+                "source": "deep_scan_seed",
+                "action": "selected_dirs",
+                "filters": {"fc": [400, 403, 404], "fl": [], "fw": [], "fs": []},
+                "data": {
+                    "seed_json": seed_json,
+                    "manual_paths_file": deep_paths_file,
+                    "manual_paths_count": len(manual_seed_paths),
+                    "manual_paths_merge": bool(deep_paths_merge),
+                    "selected_count": len(current_paths),
+                    "selected_dirs": current_paths,
+                    "seed_stats": seed_stats,
+                },
+            },
+        )
+        if report_func:
+            try:
+                report_func(
+                    f"{name}.{method.lower()}.seed",
+                    f"deep-scan selected_dirs={len(current_paths)} from={os.path.basename(seed_json) if seed_json else '-'} manual={len(manual_seed_paths)} merge={bool(deep_paths_merge)} dirs={current_paths[:20]}",
+                )
+            except Exception:
+                pass
         for step in range(1, depth_limit + 1):
             if not current_paths:
                 break
@@ -1051,6 +1137,8 @@ def run_one(
     ffuf_allow_reset=False,
     deep_source_dir=None,
     deep_depth=1,
+    deep_paths_file=None,
+    deep_paths_merge=False,
 ):
     if str(mode or "").strip().lower() == "deep-scan":
         return _run_one_deep_scan(
@@ -1079,6 +1167,8 @@ def run_one(
             ffuf_allow_reset=ffuf_allow_reset,
             deep_source_dir=deep_source_dir,
             deep_depth=deep_depth,
+            deep_paths_file=deep_paths_file,
+            deep_paths_merge=deep_paths_merge,
         )
     name = sanitize_name(target)
     meths = [str(m).upper() for m in (methods or ["GET"]) if str(m).strip()]

@@ -501,7 +501,9 @@ function loadFile(file) {
       activeSession = sessions.length - 1;
       renderAll();
     } catch(err) {
-      alert('Failed to parse JSON: ' + err.message);
+      document.dispatchEvent(new CustomEvent('show-toast', {
+        detail: { message: `Skip ${file.name}: ${err.message.slice(0,60)}`, type: 'error' }
+      }));
     }
   };
   reader.readAsText(file);
@@ -708,9 +710,8 @@ function setFilter(f, btn) {
 
 function renderTable() {
   const wrap = document.getElementById('table-wrap');
-  let results = getAllResults();
 
-  if (!results.length) {
+  if (!sessions.length) {
     wrap.innerHTML = `<div class="empty-state">
       <div class="empty-icon">◎</div>
       <div class="empty-title">No data loaded</div>
@@ -719,11 +720,16 @@ function renderTable() {
     return;
   }
 
+  // если выбран путь в дереве — ищем по всем сессиям, иначе только активная
+  let results = currentPath ? getAllResultsAllSessions() : getAllResults();
+
   // filter by tree path
   if (currentPath) {
     results = results.filter(r => {
-      const url = new URL(r.url);
-      return url.pathname.startsWith(currentPath);
+      try {
+        const pathname = new URL(r.url).pathname;
+        return pathname === currentPath || pathname.startsWith(currentPath + '/');
+      } catch { return false; }
     });
   }
 
@@ -749,9 +755,14 @@ function renderTable() {
     else if (r.status >= 500) sc = 's-500';
     const newTag = isNew ? '<span class="new-tag">NEW</span>' : '';
     const urlPath = (() => { try { return new URL(r.url).pathname; } catch { return r.url; } })();
+    const urlHost = (() => { try { return new URL(r.url).hostname; } catch { return ''; } })();
+    const fullUrl = r.url;
     return `<tr class="${isNew ? 'is-new' : ''}">
       <td class="td-status ${sc}">${r.status}</td>
-      <td class="td-url">${urlPath}${newTag}</td>
+      <td class="td-url" onclick="copyToClipboard('${fullUrl.replace(/'/g, "\'")}')" style="cursor:pointer;" title="Click to copy: ${fullUrl.replace(/"/g, '&quot;')}">
+        <span style="color:var(--text-dim);font-size:10px;">${urlHost}</span>
+        ${urlPath}${newTag}
+      </td>
       <td class="td-redirect">${r.redirect || '—'}</td>
       <td class="td-size">${r.length}</td>
       <td class="td-words">${r.words}</td>
@@ -908,7 +919,12 @@ function exportCurrentSession301() {
   const results = getAllResults();
   const dirs = results
     .filter(r => r.status === 301 || r.status === 302)
-    .map(r => { try { return new URL(r.url).pathname; } catch { return r.url; } });
+    .map(r => {
+      // берём путь из redirect, а не из исходного url
+      const target = r.redirect || r.url;
+      try { return new URL(target).pathname; } catch { return target; }
+    })
+    .filter((v, i, a) => a.indexOf(v) === i); // дедупликация
 
   if (!dirs.length) { alert('No 301/302 results in current session'); return; }
 

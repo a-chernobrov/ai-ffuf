@@ -48,6 +48,8 @@ def parse_args():
     p.add_argument("--host-suffix", default=".domain")
     p.add_argument("--deep-source-dir", "--deep-source", dest="deep_source_dir", default="/opt/my-tools/ai-ffuf/results")
     p.add_argument("--deep-depth", type=int, default=1)
+    p.add_argument("--deep-paths-file", default=None, help="Файл со стартовыми каталогами для deep-scan (по одному каталогу в строке)")
+    p.add_argument("--deep-paths-merge", action="store_true", help="Объединить --deep-paths-file с авто-выбором из seed 301/302")
     p.add_argument("-t", "--threads", type=int, default=None)
     p.add_argument("--rate", type=int, default=None)
     p.add_argument("--p", type=float, default=None)
@@ -152,7 +154,12 @@ def main():
     load_local_env()
     args = parse_args()
     if args.mode != "deep-scan":
-        if int(args.deep_depth) != 1 or str(args.deep_source_dir) != "/opt/my-tools/ai-ffuf/results":
+        if (
+            int(args.deep_depth) != 1
+            or str(args.deep_source_dir) != "/opt/my-tools/ai-ffuf/results"
+            or args.deep_paths_file
+            or bool(args.deep_paths_merge)
+        ):
             print("[WARN] deep-scan flags are ignored because --mode is not 'deep-scan'. Use: --mode deep-scan")
     os.makedirs(args.output_dir, exist_ok=True)
     os.makedirs(args.blocked_dir, exist_ok=True)
@@ -265,6 +272,8 @@ def main():
                     ffuf_allow_reset=args.ffuf_allow_reset,
                     deep_source_dir=args.deep_source_dir,
                     deep_depth=args.deep_depth,
+                    deep_paths_file=(os.path.expanduser(args.deep_paths_file.strip()) if args.deep_paths_file and args.deep_paths_file.strip() else None),
+                    deep_paths_merge=args.deep_paths_merge,
                 )
                 with lock:
                     stats["active"] -= 1

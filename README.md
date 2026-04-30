@@ -63,6 +63,8 @@ python3 crew_ffuf.py \
   --methods GET POST \
   --mode deep-scan \
   --deep-source-dir /opt/my-tools/ai-ffuf/results \
+  --deep-paths-file ./deep_dirs.txt \
+  --deep-paths-merge \
   --deep-depth 3 \
   --header "X-Pentest: GHACK" \
   --max-restarts 3 \
@@ -105,6 +107,8 @@ python3 crew_ffuf.py \
 | Флаг | По умолчанию | Описание |
 |------|-------------|----------|
 | `--deep-source-dir` | `/opt/my-tools/ai-ffuf/results` | Каталог с seed JSON, из которых берутся стартовые 301/302 поинты для deep-scan |
+| `--deep-paths-file` | — | Файл со стартовыми каталогами (по одному на строку). Комментарии `#` и пустые строки игнорируются |
+| `--deep-paths-merge` | `false` | Объединить каталоги из `--deep-paths-file` с авто-выбором из seed JSON. Без этого флага ручной список полностью переопределяет авто-выбор |
 | `--deep-depth` | `1` | Глубина каскада: сколько шагов (`step1`, `step2`, ...) выполнять |
 
 ### Скорость ffuf
@@ -168,19 +172,23 @@ Watchdog-поток проверяет состояние ffuf каждые `--m
 `deep-scan` работает по методам так же, как обычный `path`-режим, но стартует не с общего словаря путей, а с найденных редиректов из seed JSON.
 
 1. Для target + method ищется seed: `{deep_source_dir}/{sanitize_name}.{method}.json`.
-2. Seed пропускается, если файл отсутствует или пустой.
-3. Берутся только ответы `301/302`, где `redirectlocation`:
+2. Из `--deep-paths-file` (если задан) читаются стартовые каталоги.
+3. Seed пропускается, если файл отсутствует или пустой (если ручных каталогов нет).
+4. Из seed берутся только ответы `301/302`, где `redirectlocation`:
    - указывает на тот же `scheme://host`;
    - остаётся в том же поинте (например `/docs` -> `/docs/` или `/docs/...`).
    Редиректы на другие поинты/домены отбрасываются.
-4. Для сайта создаётся каталог `results/{sanitize_name}`.
-5. Для каждого шага формируется словарь путей `results/{sanitize_name}/{method}_stepN_paths.txt`.
-6. Запускается ffuf с двумя словарями:
+5. Если задан `--deep-paths-file`:
+   - без `--deep-paths-merge` ручной список заменяет seed-каталоги;
+   - с `--deep-paths-merge` ручной список объединяется с seed-каталогами.
+6. Для сайта создаётся каталог `results/{sanitize_name}`.
+7. Для каждого шага формируется словарь путей `results/{sanitize_name}/{method}_stepN_paths.txt`.
+8. Запускается ffuf с двумя словарями:
    - `-w {method}_stepN_paths.txt:PATH`
    - `-w <обычный словарь>:FUZZ`
    URL-шаблон: `target/PATH/FUZZ`.
-7. Результат шага пишется в `results/{sanitize_name}/{method}_stepN.json`.
-8. Из `stepN.json` снова извлекаются валидные `301/302` по тем же правилам, и цикл повторяется до `--deep-depth`.
+9. Результат шага пишется в `results/{sanitize_name}/{method}_stepN.json`.
+10. Из `stepN.json` снова извлекаются валидные `301/302` по тем же правилам, и цикл повторяется до `--deep-depth`.
 
 ### Фильтры шума (auto-noise)
 
