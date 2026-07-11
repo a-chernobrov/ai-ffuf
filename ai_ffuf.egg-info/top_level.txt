@@ -1,0 +1,3 @@
+crew_ffuf
+ffuf_agent
+get_hits_domains

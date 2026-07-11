@@ -1,0 +1,8 @@
+openai
+requests
+json-repair
+crewai
+crewai-tools
+pydantic
+rich
+litellm

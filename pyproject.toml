@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=64.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ai-ffuf"
+version = "0.1.0"
+description = "AI-powered ffuf wrapper for web fuzzing"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "openai",
+    "requests",
+    "json-repair",
+    "crewai",
+    "crewai-tools",
+    "pydantic",
+    "rich",
+    "litellm",
+]
+
+[project.scripts]
+ai-ffuf = "crew_ffuf:main"
+get-hits-domains = "get_hits_domains:main"
+
+[tool.setuptools]
+py-modules = ["ffuf_agent", "crew_ffuf", "get_hits_domains"]

@@ -510,7 +510,7 @@ class FFUFRunner:
                 key = (wd, ln, sz)
                 mp[key] = mp.get(key, 0) + 1
                 self._recent_statuses.append(st)
-                self._recent_sigs.append((st, key))
+                self._recent_sigs.append(key)
                 return
             except Exception:
                 pass
@@ -520,7 +520,7 @@ class FFUFRunner:
                 st = int(sm.group(1))
                 self.status_counts[st] = self.status_counts.get(st, 0) + 1
                 self._recent_statuses.append(st)
-                self._recent_sigs.append((st, None))
+                self._recent_sigs.append(None)
             except Exception:
                 pass
 
@@ -528,8 +528,6 @@ class FFUFRunner:
         min_hits = self.noise_min_hits if strict else min(self.noise_min_hits, max(3, int(total * 0.85)))
         for st, cnt in status_counts.items():
             if st in self.filters["fc"]:
-                continue
-            if 200 <= st < 400:
                 continue
             ratio = cnt / max(total, 1)
             if ratio < self.noise_ratio and cnt < min_hits:
@@ -608,13 +606,8 @@ class FFUFRunner:
         total_recent = len(self._recent_sigs)
         if total_recent >= self.noise_window_min_total:
             recent_sig_counts = {}
-            for item in self._recent_sigs:
-                if item is None:
-                    continue
-                st, sig = item if isinstance(item, (tuple, list)) else (None, item)
+            for sig in self._recent_sigs:
                 if sig is None:
-                    continue
-                if st is not None and 200 <= st < 400:
                     continue
                 recent_sig_counts[sig] = recent_sig_counts.get(sig, 0) + 1
             if recent_sig_counts:
@@ -626,9 +619,7 @@ class FFUFRunner:
             if total < self.noise_min_total:
                 return
             sig_counts = {}
-            for st, mp in self.pattern_counts_by_status.items():
-                if 200 <= st < 400:
-                    continue
+            for mp in self.pattern_counts_by_status.values():
                 for sig, cnt in mp.items():
                     sig_counts[sig] = sig_counts.get(sig, 0) + cnt
             if not sig_counts:

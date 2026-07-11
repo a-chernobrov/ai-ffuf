@@ -1,0 +1,11 @@
+README.md
+crew_ffuf.py
+ffuf_agent.py
+get_hits_domains.py
+pyproject.toml
+ai_ffuf.egg-info/PKG-INFO
+ai_ffuf.egg-info/SOURCES.txt
+ai_ffuf.egg-info/dependency_links.txt
+ai_ffuf.egg-info/entry_points.txt
+ai_ffuf.egg-info/requires.txt
+ai_ffuf.egg-info/top_level.txt
