@@ -9,6 +9,33 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 
 from ffuf_agent import run_one
+from ffuf_agent import sanitize_name
+from ffuf_agent import valid_header
+
+
+def _completed_result(path, blocked_path=None):
+    if not os.path.isfile(path) or os.path.getsize(path) == 0:
+        return False
+    if blocked_path and os.path.isfile(blocked_path):
+        if os.path.getmtime(blocked_path) >= os.path.getmtime(path):
+            return False
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception:
+        return False
+    return isinstance(data, dict) and isinstance(data.get("results"), list)
+
+
+def _target_completed(target, output_dir, methods, blocked_dir):
+    name = sanitize_name(target)
+    return bool(methods) and all(
+        _completed_result(
+            os.path.join(output_dir, f"{name}.{method.lower()}.json"),
+            os.path.join(blocked_dir, f"{name}.{method.lower()}.json"),
+        )
+        for method in methods
+    )
 
 
 def load_local_env(env_file=None):
@@ -39,8 +66,7 @@ def load_local_env(env_file=None):
 def parse_args():
     p = argparse.ArgumentParser()
     p.add_argument("--targets", required=True)
-    p.add_argument("--wordlists", nargs="+", required=True, help="Список словарей")
-    p.add_argument("--wordlist", nargs="+", dest="wordlists", help="Алиас для --wordlists")
+    p.add_argument("--wordlist", required=True, help="Путь к словарю")
     p.add_argument("--workers", type=int, default=2)
     p.add_argument("--output-dir", default="results")
     p.add_argument("--blocked-dir", default="blocked")
@@ -51,12 +77,8 @@ def parse_args():
     p.add_argument("--header", action="append", default=[], help="Доп. заголовки: 'Name: value'")
     p.add_argument("--methods", nargs="+", default=["GET"], help="Порядок HTTP-методов, например: GET POST")
     p.add_argument("--post-data", default=None, help="Тело для POST (опционально), например 'a=1&b=FUZZ'")
-    p.add_argument("--mode", choices=["path", "vhost", "deep-scan"], default="path")
+    p.add_argument("--mode", choices=["path", "vhost"], default="path")
     p.add_argument("--host-suffix", default="")
-    p.add_argument("--deep-source-dir", "--deep-source", dest="deep_source_dir", default="/opt/my-tools/ai-ffuf/results")
-    p.add_argument("--deep-depth", type=int, default=1)
-    p.add_argument("--deep-paths-file", default=None, help="Файл со стартовыми каталогами для deep-scan (по одному каталогу в строке)")
-    p.add_argument("--deep-paths-merge", action="store_true", help="Объединить --deep-paths-file с авто-выбором из seed 301/302")
     p.add_argument("-t", "--threads", type=int, default=None)
     p.add_argument("--rate", type=int, default=None)
     p.add_argument("--p", type=float, default=None)
@@ -176,14 +198,10 @@ def main():
     if env_file:
         load_local_env(env_file=env_file)
     args = parse_args()
-    if args.mode != "deep-scan":
-        if (
-            int(args.deep_depth) != 1
-            or str(args.deep_source_dir) != "/opt/my-tools/ai-ffuf/results"
-            or args.deep_paths_file
-            or bool(args.deep_paths_merge)
-        ):
-            print("[WARN] deep-scan flags are ignored because --mode is not 'deep-scan'. Use: --mode deep-scan")
+    bad_headers = [h for h in args.header if not valid_header(h)]
+    if bad_headers:
+        print(f"[ERROR] Некорректные --header (нужно 'Name: value'): {bad_headers}")
+        sys.exit(2)
     os.makedirs(args.output_dir, exist_ok=True)
     os.makedirs(args.blocked_dir, exist_ok=True)
 
@@ -206,7 +224,19 @@ def main():
         targets.append(norm)
     if skipped_duplicates:
         print(f"[INFO] Skipped duplicate targets: {skipped_duplicates}")
-    wordlists = [os.path.expanduser(x.strip()) for x in args.wordlists if x and x.strip()]
+    wordlist = os.path.expanduser(args.wordlist.strip())
+    methods = [m.strip().upper() for m in args.methods if m.strip()]
+    pending_targets = []
+    skipped_processed = 0
+    for target in targets:
+        if _target_completed(target, args.output_dir, methods, args.blocked_dir):
+            skipped_processed += 1
+            print(f"[SKIP] Уже обработан: {target}")
+        else:
+            pending_targets.append(target)
+    targets = pending_targets
+    if skipped_processed:
+        print(f"[INFO] Пропущено ранее обработанных targets: {skipped_processed}")
 
     lock = threading.Lock()
     stats = {"total": len(targets), "completed": 0, "ok": 0, "empty": 0, "blocked": 0, "active": 0}
@@ -269,14 +299,14 @@ def main():
                     stats["active"] += 1
                 name, (ok, info) = run_one(
                     target=target,
-                    wordlists=wordlists,
+                    wordlist=wordlist,
                     out_dir=args.output_dir,
                     blocked_dir=args.blocked_dir,
                     max_restarts=args.max_restarts,
                     llm_model=args.llm_model,
                     llm_trigger=args.llm_trigger,
                     headers=[h.strip() for h in args.header],
-                    methods=[m.strip().upper() for m in args.methods if m.strip()],
+                    methods=methods,
                     post_data=args.post_data,
                     report_func=reporter,
                     ban_403_rate=args.ban_403_rate,
@@ -293,10 +323,6 @@ def main():
                     ffuf_extra=args.ffuf_extra,
                     ffuf_allow=args.ffuf_allow,
                     ffuf_allow_reset=args.ffuf_allow_reset,
-                    deep_source_dir=args.deep_source_dir,
-                    deep_depth=args.deep_depth,
-                    deep_paths_file=(os.path.expanduser(args.deep_paths_file.strip()) if args.deep_paths_file and args.deep_paths_file.strip() else None),
-                    deep_paths_merge=args.deep_paths_merge,
                 )
                 with lock:
                     stats["active"] -= 1

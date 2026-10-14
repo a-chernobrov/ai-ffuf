@@ -24,7 +24,7 @@ def main():
             res = data.get("results", [])
             if len(res) > 0:
                 hits.append(name)
-        except:
+        except Exception:
             pass
 
     if args.check:
